@@ -223,8 +223,34 @@ class NL2SQLApp(App):
                 log.write(f"[bold red]{t('error_label')}:[/] {result['error']}")
             else:
                 log.write(f"[bold green]{t('sql_label')}:[/] {result['sql']}")
-                if result.get("columns") and result.get("rows"):
-                    log.write(f"[dim]{t('results_label')}: {len(result['rows'])} {t('rows_unit')}[/]")
+
+                columns = result.get("columns", [])
+                rows = result.get("rows", [])
+
+                if columns and rows:
+                    col_widths = [len(str(c)) for c in columns]
+                    for row in rows:
+                        for i, val in enumerate(row):
+                            if i < len(col_widths):
+                                col_widths[i] = max(col_widths[i], len(str(val)))
+
+                    header = " | ".join(str(c).ljust(col_widths[i]) for i, c in enumerate(columns))
+                    separator = "-+-".join("-" * w for w in col_widths)
+
+                    log.write(f"[dim]{separator}[/]")
+                    log.write(f"[bold]{header}[/]")
+                    log.write(f"[dim]{separator}[/]")
+
+                    for row in rows:
+                        line = " | ".join(str(val).ljust(col_widths[i]) if i < len(col_widths) else str(val) for i, val in enumerate(row))
+                        log.write(line)
+
+                    log.write(f"[dim]{separator}[/]")
+                    log.write(f"[dim]{t('results_label')}: {len(rows)} {t('rows_unit')}[/]")
+                elif columns:
+                    log.write(f"[dim]{t('no_data')}[/]")
+                else:
+                    log.write(f"[dim]{t('results_label')}: {len(rows)} {t('rows_unit')}[/]")
         except Exception as e:
             log.write(f"[bold red]{t('error_label')}:[/] {e}")
 
@@ -269,7 +295,10 @@ class NL2SQLApp(App):
                 self._update_ui_texts()
                 log.write(f"[green]{t('lang_changed')}[/]")
             else:
-                log.write("[dim]Usage: /lang [en|zh][/]")
+                target = "en" if self._i18n.lang == "zh" else "zh"
+                self._i18n.switch_lang(target)
+                self._update_ui_texts()
+                log.write(f"[green]{t('lang_changed')}[/]")
         else:
             log.write(f"[red]{t('unknown_command')}: {command}[/]")
 

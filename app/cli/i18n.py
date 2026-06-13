@@ -7,6 +7,7 @@ TRANSLATIONS = {
         "sql_label": "SQL",
         "results_label": "Results",
         "rows_unit": "rows",
+        "no_data": "No data",
         "placeholder": "Ask a question...",
         "sidebar_history": "── History ──",
         "sidebar_commands": "── Commands ──",
@@ -19,6 +20,7 @@ TRANSLATIONS = {
         "cleared": "Messages cleared",
         "unknown_command": "Unknown command",
         "lang_changed": "Language switched to English",
+        "lang_switch": "Switch to Chinese",
         "commands": {
             "/help": "Show help",
             "/clear": "Clear messages",
@@ -26,7 +28,6 @@ TRANSLATIONS = {
             "/export": "Export history to file",
             "/config": "Show config",
             "/schema": "Show DB schema",
-            "/lang": "Switch language (en/zh)",
         },
         "help_text": (
             "[bold yellow]Commands:[/]\n"
@@ -36,7 +37,7 @@ TRANSLATIONS = {
             "  /export   - Export history to nl2sql_history.txt\n"
             "  /config   - Show current configuration\n"
             "  /schema   - Show database schema\n"
-            "  /lang     - Switch language (en/zh)"
+            "  /lang     - Switch to Chinese"
         ),
     },
     "zh": {
@@ -47,6 +48,7 @@ TRANSLATIONS = {
         "sql_label": "SQL",
         "results_label": "结果",
         "rows_unit": "行",
+        "no_data": "无数据",
         "placeholder": "请输入问题...",
         "sidebar_history": "── 历史记录 ──",
         "sidebar_commands": "── 命令列表 ──",
@@ -59,6 +61,7 @@ TRANSLATIONS = {
         "cleared": "消息已清空",
         "unknown_command": "未知命令",
         "lang_changed": "语言已切换为中文",
+        "lang_switch": "切换到英文",
         "commands": {
             "/help": "显示帮助",
             "/clear": "清空消息",
@@ -66,7 +69,6 @@ TRANSLATIONS = {
             "/export": "导出历史到文件",
             "/config": "查看配置",
             "/schema": "查看数据库结构",
-            "/lang": "切换语言 (en/zh)",
         },
         "help_text": (
             "[bold yellow]命令列表:[/]\n"
@@ -76,7 +78,7 @@ TRANSLATIONS = {
             "  /export   - 导出历史到 nl2sql_history.txt\n"
             "  /config   - 查看当前配置\n"
             "  /schema   - 查看数据库结构\n"
-            "  /lang     - 切换语言 (en/zh)"
+            "  /lang     - 切换到英文"
         ),
     },
 }
@@ -90,12 +92,13 @@ class I18n:
         return TRANSLATIONS.get(self.lang, TRANSLATIONS["zh"]).get(key, key)
 
     def get_commands(self) -> list[tuple[str, str]]:
-        cmds = TRANSLATIONS.get(self.lang, TRANSLATIONS["zh"])["commands"]
-        return [(k, v) for k, v in cmds.items()]
-
-    def get_command_desc(self, cmd: str) -> str:
-        cmds = TRANSLATIONS.get(self.lang, TRANSLATIONS["zh"])["commands"]
-        return cmds.get(cmd, cmd)
+        t = TRANSLATIONS.get(self.lang, TRANSLATIONS["zh"])
+        cmds = [(k, v) for k, v in t["commands"].items()]
+        if self.lang == "zh":
+            cmds.append(("/lang en", t["lang_switch"]))
+        else:
+            cmds.append(("/lang zh", t["lang_switch"]))
+        return cmds
 
     def switch_lang(self, lang: str) -> None:
         if lang in TRANSLATIONS:
