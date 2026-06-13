@@ -11,8 +11,12 @@ dependencies = [
     "httpx>=0.28.0",
     "python-dotenv>=1.0.0",
     "sqlalchemy>=2.0.49",
+    "textual>=8.2.7",
     "uvicorn>=0.46.0",
 ]
+
+[project.scripts]
+nl2sql-cli = "app.cli.__main__:main"
 
 [tool.uv]
 index-url = "https://mirrors.aliyun.com/pypi/simple/"
