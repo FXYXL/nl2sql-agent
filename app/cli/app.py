@@ -115,8 +115,8 @@ class NL2SQLApp(App):
 
     #status-bar {
         height: 1;
-        dock: bottom;
         background: $primary-background-lighten-2;
+        padding: 0 1;
     }
     """
 
@@ -157,9 +157,9 @@ class NL2SQLApp(App):
                     with VerticalScroll(id="message-container"):
                         yield RichLog(id="message-log", auto_scroll=True, markup=True)
                 yield Sidebar(id="sidebar")
+            yield Static(id="status-bar")
             with Vertical(id="input-container"):
                 yield Input(id="user-input")
-        yield Static(id="status-bar")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -647,8 +647,12 @@ class NL2SQLApp(App):
             return
 
         try:
-            from app.core.database import execute_sql
-            columns, rows = await execute_sql(explain_sql)
+            from app.core.database import engine
+            from sqlalchemy import text
+            async with engine.connect() as conn:
+                result = await conn.execute(text(explain_sql))
+                columns = list(result.keys())
+                rows = [list(row) for row in result.fetchall()]
 
             log.write(f"[bold yellow]{t('explain_title')}:[/]")
             table = self._build_result_table(columns, rows)
@@ -690,7 +694,11 @@ class NL2SQLApp(App):
 
         parts = command.split(maxsplit=2)
         if len(parts) < 2:
-            log.write(f"[dim]{t('fav_usage')}[/]")
+            log.write(f"[bold yellow]{t('fav_list_title')}:[/]\n"
+                      "  /fav save [name] - Save last SQL\n"
+                      "  /fav list        - List all favorites\n"
+                      "  /fav run N       - Execute favorite N\n"
+                      "  /fav del N       - Delete favorite N")
             return
 
         action = parts[1].lower()
@@ -724,7 +732,10 @@ class NL2SQLApp(App):
                     idx = int(parts[2]) - 1
                     fav = get_favorite(idx)
                     if fav:
-                        self.run_question(fav["sql"])
+                        sql = fav["sql"]
+                        log.write(f"[bold blue]SQL:[/] {sql}")
+                        import asyncio
+                        asyncio.ensure_future(self._execute_direct_sql(sql))
                     else:
                         log.write(f"[yellow]{t('fav_not_found')}[/]")
                 except ValueError:
@@ -746,6 +757,29 @@ class NL2SQLApp(App):
                 log.write(f"[dim]{t('fav_usage')}[/]")
         else:
             log.write(f"[dim]{t('fav_usage')}[/]")
+
+    async def _execute_direct_sql(self, sql: str) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        start_time = time.time()
+        try:
+            from app.core.database import execute_sql
+            columns, rows = await execute_sql(sql)
+            elapsed = time.time() - start_time
+
+            if columns and rows:
+                self._show_paginated_results(columns, rows)
+            elif columns:
+                log.write(f"[dim]{t('no_data')}[/]")
+            else:
+                log.write(f"[dim]{t('results_label')}: 0 {t('rows_unit')}[/]")
+
+            log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
+        except Exception as e:
+            elapsed = time.time() - start_time
+            log.write(f"[bold red]{t('error_label')}:[/] {e}")
+            log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
 
     async def switch_database(self, url: str) -> None:
         t = self._i18n.t
