@@ -52,6 +52,10 @@ class NL2SQLApp(App):
         padding: 1;
     }
 
+    #message-container:focus-within {
+        border: solid $accent;
+    }
+
     #sidebar {
         dock: right;
         width: 30;
@@ -450,6 +454,22 @@ class NL2SQLApp(App):
                 log.write(f"[dim]{t('db_usage')}[/]")
         elif cmd == "/quit":
             self.exit()
+        elif cmd == "/copy":
+            if self._last_sql:
+                import subprocess
+                import platform
+                try:
+                    if platform.system() == "Windows":
+                        process = subprocess.Popen(["clip"], stdin=subprocess.PIPE)
+                        process.communicate(self._last_sql.encode("utf-16le"))
+                    else:
+                        process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+                        process.communicate(self._last_sql.encode("utf-8"))
+                    log.write(f"[green]{t('copied_to_clipboard')}[/]")
+                except Exception:
+                    log.write(f"[yellow]{self._last_sql}[/]")
+            else:
+                log.write(f"[yellow]{t('no_sql_to_copy')}[/]")
         elif cmd.startswith("/lang"):
             parts = cmd.split()
             if len(parts) >= 2 and parts[1] in ("en", "zh"):

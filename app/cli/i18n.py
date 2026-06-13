@@ -35,6 +35,8 @@ TRANSLATIONS = {
         "db_connect_error": "Database connection failed",
         "db_usage": "Usage: /db <mysql+aiomysql://user:pass@host:port/db>",
         "history_loaded": "History loaded from disk",
+        "copied_to_clipboard": "SQL copied to clipboard",
+        "no_sql_to_copy": "No SQL to copy",
         "commands": {
             "/help": "Show help",
             "/clear": "Clear messages",
@@ -45,6 +47,7 @@ TRANSLATIONS = {
             "/schema": "Show DB schema",
             "/write": "Toggle write mode",
             "/db": "Switch database",
+            "/copy": "Copy last SQL to clipboard",
             "/quit": "Quit application",
         },
         "help_text": (
@@ -58,6 +61,7 @@ TRANSLATIONS = {
             "  /schema     - Show database schema\n"
             "  /write      - Toggle write mode (INSERT/UPDATE/DELETE)\n"
             "  /db         - Switch database connection\n"
+            "  /copy       - Copy last SQL to clipboard\n"
             "  /quit       - Quit application\n"
             "  /lang       - Switch to Chinese\n\n"
             "[dim]Keyboard shortcuts:[/]\n"
@@ -103,6 +107,8 @@ TRANSLATIONS = {
         "db_connect_error": "数据库连接失败",
         "db_usage": "用法: /db <mysql+aiomysql://用户名:密码@主机:端口/数据库>",
         "history_loaded": "历史记录已从磁盘加载",
+        "copied_to_clipboard": "SQL 已复制到剪贴板",
+        "no_sql_to_copy": "没有可复制的 SQL",
         "commands": {
             "/help": "显示帮助",
             "/clear": "清空消息",
@@ -113,6 +119,7 @@ TRANSLATIONS = {
             "/schema": "查看数据库结构",
             "/write": "切换写入模式",
             "/db": "切换数据库",
+            "/copy": "复制上次 SQL 到剪贴板",
             "/quit": "退出应用",
         },
         "help_text": (
@@ -126,6 +133,7 @@ TRANSLATIONS = {
             "  /schema     - 查看数据库结构\n"
             "  /write      - 切换写入模式 (INSERT/UPDATE/DELETE)\n"
             "  /db         - 切换数据库连接\n"
+            "  /copy       - 复制上次 SQL 到剪贴板\n"
             "  /quit       - 退出应用\n"
             "  /lang       - 切换到英文\n\n"
             "[dim]快捷键:[/]\n"
