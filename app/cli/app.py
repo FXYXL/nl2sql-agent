@@ -104,6 +104,22 @@ class NL2SQLApp(App):
             "[bold green]NL2SQL Agent[/] - Type your question or / for commands"
         )
 
+    @on(Input.Changed, "#user-input")
+    def handle_input_changed(self, event: Input.Changed) -> None:
+        palette = self.query_one("#command-palette")
+        if event.value == "/":
+            palette.add_class("visible")
+            palette.update(
+                "[bold]/help[/]     - Show help\n"
+                "[bold]/clear[/]    - Clear messages\n"
+                "[bold]/history[/]  - Show history\n"
+                "[bold]/export[/]   - Export history\n"
+                "[bold]/config[/]   - Show config\n"
+                "[bold]/schema[/]   - Show DB schema"
+            )
+        else:
+            palette.remove_class("visible")
+
     @on(Input.Submitted, "#user-input")
     async def handle_input(self, event: Input.Submitted) -> None:
         value = event.value.strip()
