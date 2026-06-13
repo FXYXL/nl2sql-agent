@@ -45,6 +45,7 @@ TRANSLATIONS = {
             "/schema": "Show DB schema",
             "/write": "Toggle write mode",
             "/db": "Switch database",
+            "/quit": "Quit application",
         },
         "help_text": (
             "[bold yellow]Commands:[/]\n"
@@ -57,6 +58,7 @@ TRANSLATIONS = {
             "  /schema     - Show database schema\n"
             "  /write      - Toggle write mode (INSERT/UPDATE/DELETE)\n"
             "  /db         - Switch database connection\n"
+            "  /quit       - Quit application\n"
             "  /lang       - Switch to Chinese\n\n"
             "[dim]Keyboard shortcuts:[/]\n"
             "  Up/Down     - Browse input history\n"
@@ -111,6 +113,7 @@ TRANSLATIONS = {
             "/schema": "查看数据库结构",
             "/write": "切换写入模式",
             "/db": "切换数据库",
+            "/quit": "退出应用",
         },
         "help_text": (
             "[bold yellow]命令列表:[/]\n"
@@ -123,6 +126,7 @@ TRANSLATIONS = {
             "  /schema     - 查看数据库结构\n"
             "  /write      - 切换写入模式 (INSERT/UPDATE/DELETE)\n"
             "  /db         - 切换数据库连接\n"
+            "  /quit       - 退出应用\n"
             "  /lang       - 切换到英文\n\n"
             "[dim]快捷键:[/]\n"
             "  上/下        - 翻看输入历史\n"

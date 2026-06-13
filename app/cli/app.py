@@ -165,6 +165,7 @@ class NL2SQLApp(App):
     def _load_persisted_history(self) -> None:
         t = self._i18n.t
         log = self.query_one("#message-log", RichLog)
+        history_log = self.query_one("#history-log", RichLog)
 
         chat_messages = load_chat_history()
         if chat_messages:
@@ -173,6 +174,8 @@ class NL2SQLApp(App):
                 content = msg.get("content", "")
                 if role == "user":
                     log.write(f"[bold blue]{t('you_label')}:[/] {content}")
+                    truncated = content[:30] + "..." if len(content) > 30 else content
+                    history_log.write(f"[dim]{truncated}[/]")
                 elif role == "assistant":
                     log.write(content)
             log.write(f"[dim]{t('history_loaded')}[/]")
@@ -445,6 +448,8 @@ class NL2SQLApp(App):
                 await self.switch_database(parts[1])
             else:
                 log.write(f"[dim]{t('db_usage')}[/]")
+        elif cmd == "/quit":
+            self.exit()
         elif cmd.startswith("/lang"):
             parts = cmd.split()
             if len(parts) >= 2 and parts[1] in ("en", "zh"):
