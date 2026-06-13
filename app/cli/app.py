@@ -1,5 +1,6 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Input, RichLog
+from textual.widgets import Header, Footer, Static, Input, RichLog, OptionList
+from textual.widgets.option_list import Option
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
@@ -21,6 +22,16 @@ class Sidebar(Static):
             "/schema   - Show DB schema",
             id="commands-list"
         )
+
+
+COMMANDS = [
+    ("/help", "Show help"),
+    ("/clear", "Clear messages"),
+    ("/history", "Show chat history"),
+    ("/export", "Export history to file"),
+    ("/config", "Show config"),
+    ("/schema", "Show DB schema"),
+]
 
 
 class NL2SQLApp(App):
@@ -80,7 +91,7 @@ class NL2SQLApp(App):
 
     #command-palette {
         display: none;
-        dock: top;
+        dock: bottom;
         max-height: 15;
         border: solid $accent;
         padding: 1;
@@ -95,18 +106,30 @@ class NL2SQLApp(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_messages", "Clear"),
         Binding("ctrl+h", "toggle_sidebar", "Sidebar"),
+        Binding("up", "prev_command", "Prev", show=False, priority=True),
+        Binding("down", "next_command", "Next", show=False, priority=True),
     ]
+
+    def __init__(self):
+        super().__init__()
+        self._command_index = -1
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="root"):
             with Horizontal(id="content-area"):
                 with Vertical(id="main-area"):
+                    yield OptionList(
+                        *[
+                            Option(f"{cmd}  - {desc}")
+                            for cmd, desc in COMMANDS
+                        ],
+                        id="command-palette",
+                    )
                     with VerticalScroll(id="message-container"):
                         yield RichLog(id="message-log", auto_scroll=True, markup=True)
                 yield Sidebar(id="sidebar")
             with Vertical(id="input-container"):
-                yield Static("/ for commands", id="command-palette")
                 yield Input(placeholder="Ask a question...", id="user-input")
         yield Footer()
 
@@ -114,35 +137,82 @@ class NL2SQLApp(App):
         self.query_one("#message-log", RichLog).write(
             "[bold green]NL2SQL Agent[/] - Type your question or / for commands"
         )
+        palette = self.query_one("#command-palette", OptionList)
+        palette.visible = False
 
     @on(Input.Changed, "#user-input")
     def handle_input_changed(self, event: Input.Changed) -> None:
-        palette = self.query_one("#command-palette")
-        if event.value == "/":
-            palette.add_class("visible")
-            palette.update(
-                "[bold]/help[/]     - Show help\n"
-                "[bold]/clear[/]    - Clear messages\n"
-                "[bold]/history[/]  - Show history\n"
-                "[bold]/export[/]   - Export history\n"
-                "[bold]/config[/]   - Show config\n"
-                "[bold]/schema[/]   - Show DB schema"
-            )
+        palette = self.query_one("#command-palette", OptionList)
+        value = event.value
+
+        if value.startswith("/"):
+            palette.visible = True
+            filter_text = value[1:].lower()
+            options = [
+                f"{cmd}  - {desc}"
+                for cmd, desc in COMMANDS
+                if filter_text in cmd.lower()
+            ]
+            if options:
+                palette.clear_options()
+                palette.add_options(options)
+                self._command_index = 0
+                palette.highlighted = 0
+            else:
+                palette.visible = False
         else:
-            palette.remove_class("visible")
+            palette.visible = False
+            self._command_index = -1
+
+    def action_prev_command(self) -> None:
+        palette = self.query_one("#command-palette", OptionList)
+        if not palette.visible:
+            return
+        if self._command_index > 0:
+            self._command_index -= 1
+            palette.highlighted = self._command_index
+
+    def action_next_command(self) -> None:
+        palette = self.query_one("#command-palette", OptionList)
+        if not palette.visible:
+            return
+        if self._command_index < len(palette.option_count) - 1:
+            self._command_index += 1
+            palette.highlighted = self._command_index
+
+    @on(OptionList.OptionSelected, "#command-palette")
+    def handle_option_selected(self, event: OptionList.OptionSelected) -> None:
+        palette = self.query_one("#command-palette", OptionList)
+        if event.option_index < len(COMMANDS):
+            command = COMMANDS[event.option_index][0]
+            palette.visible = False
+            self._command_index = -1
+            input_widget = self.query_one("#user-input", Input)
+            input_widget.value = ""
+            self.run_command(command)
 
     @on(Input.Submitted, "#user-input")
-    async def handle_input(self, event: Input.Submitted) -> None:
+    def handle_input(self, event: Input.Submitted) -> None:
+        palette = self.query_one("#command-palette", OptionList)
         value = event.value.strip()
         event.input.value = ""
 
-        if not value:
-            return
+        palette.visible = False
+        self._command_index = -1
 
-        if value.startswith("/"):
-            await self.handle_command(value)
-        else:
-            await self.handle_question(value)
+        if value:
+            if value.startswith("/"):
+                self.run_command(value)
+            else:
+                self.run_question(value)
+
+    def run_command(self, command: str) -> None:
+        import asyncio
+        asyncio.ensure_future(self.handle_command(command))
+
+    def run_question(self, question: str) -> None:
+        import asyncio
+        asyncio.ensure_future(self.handle_question(question))
 
     async def handle_question(self, question: str) -> None:
         log = self.query_one("#message-log", RichLog)

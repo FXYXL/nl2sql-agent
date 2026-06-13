@@ -184,7 +184,7 @@ async def test_question_error_mocked():
     async with app.run_test(size=(120, 40)) as pilot:
         with patch("app.agents.sql_agent.ask", new_callable=AsyncMock, return_value=mock_result):
             await type_and_submit(app, pilot, "test question")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
 
             log = app.query_one("#message-log")
             text = get_richlog_text(log)
@@ -249,10 +249,10 @@ async def test_export_includes_history():
     async with app.run_test(size=(120, 40)) as pilot:
         with patch("app.agents.sql_agent.ask", new_callable=AsyncMock, return_value=mock_result):
             await type_and_submit(app, pilot, "count users")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
 
             await type_and_submit(app, pilot, "/export")
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
 
         assert os.path.exists(export_file), "Export file not created"
         content = open(export_file, "r", encoding="utf-8").read()
