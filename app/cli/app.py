@@ -4,6 +4,9 @@ from textual.widgets.option_list import Option
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
+from rich.table import Table
+from rich.text import Text
+import time
 
 from app.cli.i18n import I18n
 
@@ -98,6 +101,11 @@ class NL2SQLApp(App):
         super().__init__()
         self._command_index = -1
         self._i18n = I18n()
+        self._input_history: list[str] = []
+        self._history_index = -1
+        self._last_sql: str = ""
+        self._last_result: dict = {}
+        self._pending_clear = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -157,19 +165,30 @@ class NL2SQLApp(App):
 
     def action_prev_command(self) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        if "-visible" not in palette.classes:
-            return
-        if self._command_index > 0:
-            self._command_index -= 1
-            palette.highlighted = self._command_index
+        if "-visible" in palette.classes:
+            if self._command_index > 0:
+                self._command_index -= 1
+                palette.highlighted = self._command_index
+        else:
+            input_widget = self.query_one("#user-input", Input)
+            if self._input_history and self._history_index < len(self._input_history) - 1:
+                self._history_index += 1
+                input_widget.value = self._input_history[-(self._history_index + 1)]
 
     def action_next_command(self) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        if "-visible" not in palette.classes:
-            return
-        if self._command_index < len(palette.option_count) - 1:
-            self._command_index += 1
-            palette.highlighted = self._command_index
+        if "-visible" in palette.classes:
+            if self._command_index < len(palette.option_count) - 1:
+                self._command_index += 1
+                palette.highlighted = self._command_index
+        else:
+            input_widget = self.query_one("#user-input", Input)
+            if self._history_index > 0:
+                self._history_index -= 1
+                input_widget.value = self._input_history[-(self._history_index + 1)]
+            elif self._history_index == 0:
+                self._history_index = -1
+                input_widget.value = ""
 
     @on(OptionList.OptionSelected, "#command-palette")
     def handle_option_selected(self, event: OptionList.OptionSelected) -> None:
@@ -190,12 +209,26 @@ class NL2SQLApp(App):
 
         palette.remove_class("visible")
         self._command_index = -1
+        self._history_index = -1
 
-        if value:
-            if value.startswith("/"):
-                self.run_command(value)
-            else:
-                self.run_question(value)
+        if not value:
+            return
+
+        if self._pending_clear:
+            self._pending_clear = False
+            if value.lower() in ("y", "yes", "是", "确认"):
+                self.query_one("#message-log", RichLog).clear()
+                self.query_one("#message-log", RichLog).write(
+                    f"[dim]{self._i18n.t('cleared')}[/]"
+                )
+            return
+
+        if value.startswith("/"):
+            self.run_command(value)
+        else:
+            if value not in self._input_history:
+                self._input_history.append(value)
+            self.run_question(value)
 
     def run_command(self, command: str) -> None:
         import asyncio
@@ -204,6 +237,14 @@ class NL2SQLApp(App):
     def run_question(self, question: str) -> None:
         import asyncio
         asyncio.ensure_future(self.handle_question(question))
+
+    def _build_result_table(self, columns: list[str], rows: list[list]) -> Table:
+        table = Table(show_header=True, header_style="bold cyan", show_lines=True, expand=True)
+        for col in columns:
+            table.add_column(str(col), overflow="ellipsis")
+        for row in rows:
+            table.add_row(*[str(v) if v is not None else "NULL" for v in row])
+        return table
 
     async def handle_question(self, question: str) -> None:
         t = self._i18n.t
@@ -215,9 +256,14 @@ class NL2SQLApp(App):
 
         log.write(f"[dim]{t('thinking')}[/]")
 
+        start_time = time.time()
         try:
             from app.agents.sql_agent import ask
             result = await ask(question)
+            elapsed = time.time() - start_time
+
+            self._last_sql = result.get("sql", "")
+            self._last_result = result
 
             if result.get("error"):
                 log.write(f"[bold red]{t('error_label')}:[/] {result['error']}")
@@ -228,31 +274,23 @@ class NL2SQLApp(App):
                 rows = result.get("rows", [])
 
                 if columns and rows:
-                    col_widths = [len(str(c)) for c in columns]
-                    for row in rows:
-                        for i, val in enumerate(row):
-                            if i < len(col_widths):
-                                col_widths[i] = max(col_widths[i], len(str(val)))
+                    table = self._build_result_table(columns, rows)
+                    log.write(table)
 
-                    header = " | ".join(str(c).ljust(col_widths[i]) for i, c in enumerate(columns))
-                    separator = "-+-".join("-" * w for w in col_widths)
-
-                    log.write(f"[dim]{separator}[/]")
-                    log.write(f"[bold]{header}[/]")
-                    log.write(f"[dim]{separator}[/]")
-
-                    for row in rows:
-                        line = " | ".join(str(val).ljust(col_widths[i]) if i < len(col_widths) else str(val) for i, val in enumerate(row))
-                        log.write(line)
-
-                    log.write(f"[dim]{separator}[/]")
-                    log.write(f"[dim]{t('results_label')}: {len(rows)} {t('rows_unit')}[/]")
+                    if len(rows) >= 1000:
+                        log.write(f"[dim yellow]... {t('results_label')}: {len(rows)} {t('rows_unit')} ({t('truncated')})[/]")
+                    else:
+                        log.write(f"[dim]{t('results_label')}: {len(rows)} {t('rows_unit')}[/]")
                 elif columns:
                     log.write(f"[dim]{t('no_data')}[/]")
                 else:
-                    log.write(f"[dim]{t('results_label')}: {len(rows)} {t('rows_unit')}[/]")
+                    log.write(f"[dim]{t('results_label')}: 0 {t('rows_unit')}[/]")
+
+                log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
         except Exception as e:
+            elapsed = time.time() - start_time
             log.write(f"[bold red]{t('error_label')}:[/] {e}")
+            log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
 
     async def handle_command(self, command: str) -> None:
         t = self._i18n.t
@@ -263,8 +301,8 @@ class NL2SQLApp(App):
         if cmd == "/help":
             log.write(t("help_text"))
         elif cmd == "/clear":
-            self.query_one("#message-log", RichLog).clear()
-            log.write(f"[dim]{t('cleared')}[/]")
+            self._pending_clear = True
+            log.write(f"[bold yellow]{t('confirm_clear')}[/]")
         elif cmd == "/history":
             log.write(f"[bold yellow]{t('history_title')}:[/]")
             history = self.query_one("#history-log", RichLog)
@@ -272,6 +310,8 @@ class NL2SQLApp(App):
                 log.write(f"  {line.text}")
         elif cmd == "/export":
             await self.export_history()
+        elif cmd == "/export csv":
+            await self.export_csv()
         elif cmd == "/config":
             from app.core.config import DATABASE_URL, BASE_URL, MODEL_NAME
             from urllib.parse import urlparse
@@ -312,6 +352,30 @@ class NL2SQLApp(App):
                 for line in history.lines:
                     f.write(line.text + "\n")
             log.write(f"[green]{t('export_success')}[/]")
+        except Exception as e:
+            log.write(f"[bold red]{t('export_error')}:[/] {e}")
+
+    async def export_csv(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        if not self._last_result or not self._last_result.get("columns"):
+            log.write(f"[yellow]{t('no_result_to_export')}[/]")
+            return
+
+        try:
+            import csv
+            import io
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(self._last_result["columns"])
+            for row in self._last_result.get("rows", []):
+                writer.writerow(row)
+
+            with open("query_result.csv", "w", encoding="utf-8", newline="") as f:
+                f.write(output.getvalue())
+
+            log.write(f"[green]{t('csv_exported')}[/]")
         except Exception as e:
             log.write(f"[bold red]{t('export_error')}:[/] {e}")
 

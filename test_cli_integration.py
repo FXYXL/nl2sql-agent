@@ -74,6 +74,8 @@ async def test_clear_command():
         await asyncio.sleep(0.1)
         await type_and_submit(app, pilot, "/clear")
         await asyncio.sleep(0.1)
+        await type_and_submit(app, pilot, "y")
+        await asyncio.sleep(0.1)
 
         log = app.query_one("#message-log")
         text = get_richlog_text(log)
