@@ -138,7 +138,7 @@ class NL2SQLApp(App):
             "[bold green]NL2SQL Agent[/] - Type your question or / for commands"
         )
         palette = self.query_one("#command-palette", OptionList)
-        palette.visible = False
+        palette.remove_class("visible")
 
     @on(Input.Changed, "#user-input")
     def handle_input_changed(self, event: Input.Changed) -> None:
@@ -146,7 +146,7 @@ class NL2SQLApp(App):
         value = event.value
 
         if value.startswith("/"):
-            palette.visible = True
+            palette.add_class("visible")
             filter_text = value[1:].lower()
             options = [
                 f"{cmd}  - {desc}"
@@ -159,14 +159,14 @@ class NL2SQLApp(App):
                 self._command_index = 0
                 palette.highlighted = 0
             else:
-                palette.visible = False
+                palette.remove_class("visible")
         else:
-            palette.visible = False
+            palette.remove_class("visible")
             self._command_index = -1
 
     def action_prev_command(self) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        if not palette.visible:
+        if "-visible" not in palette.classes:
             return
         if self._command_index > 0:
             self._command_index -= 1
@@ -174,7 +174,7 @@ class NL2SQLApp(App):
 
     def action_next_command(self) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        if not palette.visible:
+        if "-visible" not in palette.classes:
             return
         if self._command_index < len(palette.option_count) - 1:
             self._command_index += 1
@@ -183,13 +183,13 @@ class NL2SQLApp(App):
     @on(OptionList.OptionSelected, "#command-palette")
     def handle_option_selected(self, event: OptionList.OptionSelected) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        if event.option_index < len(COMMANDS):
-            command = COMMANDS[event.option_index][0]
-            palette.visible = False
+        option_text = COMMANDS[event.option_index][0] if event.option_index < len(COMMANDS) else None
+        if option_text:
+            palette.remove_class("visible")
             self._command_index = -1
             input_widget = self.query_one("#user-input", Input)
             input_widget.value = ""
-            self.run_command(command)
+            self.run_command(option_text)
 
     @on(Input.Submitted, "#user-input")
     def handle_input(self, event: Input.Submitted) -> None:
@@ -197,7 +197,7 @@ class NL2SQLApp(App):
         value = event.value.strip()
         event.input.value = ""
 
-        palette.visible = False
+        palette.remove_class("visible")
         self._command_index = -1
 
         if value:
