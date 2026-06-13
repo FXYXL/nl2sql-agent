@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 .env
+.nl2sql
+.mimocode
+docs/
