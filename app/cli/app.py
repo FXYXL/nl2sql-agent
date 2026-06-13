@@ -5,33 +5,17 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
 
+from app.cli.i18n import I18n
+
 
 class Sidebar(Static):
     """Right sidebar showing history and commands."""
 
     def compose(self) -> ComposeResult:
-        yield Static("── History ──", id="history-title")
+        yield Static(id="history-title")
         yield RichLog(id="history-log", auto_scroll=True)
-        yield Static("── Commands ──", id="commands-title")
-        yield Static(
-            "/help     - Show help\n"
-            "/clear    - Clear messages\n"
-            "/history  - Show chat history\n"
-            "/export   - Export history to file\n"
-            "/config   - Show config\n"
-            "/schema   - Show DB schema",
-            id="commands-list"
-        )
-
-
-COMMANDS = [
-    ("/help", "Show help"),
-    ("/clear", "Clear messages"),
-    ("/history", "Show chat history"),
-    ("/export", "Export history to file"),
-    ("/config", "Show config"),
-    ("/schema", "Show DB schema"),
-]
+        yield Static(id="commands-title")
+        yield Static(id="commands-list")
 
 
 class NL2SQLApp(App):
@@ -113,32 +97,39 @@ class NL2SQLApp(App):
     def __init__(self):
         super().__init__()
         self._command_index = -1
+        self._i18n = I18n()
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="root"):
             with Horizontal(id="content-area"):
                 with Vertical(id="main-area"):
-                    yield OptionList(
-                        *[
-                            Option(f"{cmd}  - {desc}")
-                            for cmd, desc in COMMANDS
-                        ],
-                        id="command-palette",
-                    )
+                    yield OptionList(id="command-palette")
                     with VerticalScroll(id="message-container"):
                         yield RichLog(id="message-log", auto_scroll=True, markup=True)
                 yield Sidebar(id="sidebar")
             with Vertical(id="input-container"):
-                yield Input(placeholder="Ask a question...", id="user-input")
+                yield Input(id="user-input")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#message-log", RichLog).write(
-            "[bold green]NL2SQL Agent[/] - Type your question or / for commands"
-        )
+        self._update_ui_texts()
+        self.query_one("#message-log", RichLog).write(self._i18n.t("welcome"))
         palette = self.query_one("#command-palette", OptionList)
         palette.remove_class("visible")
+
+    def _update_ui_texts(self) -> None:
+        t = self._i18n.t
+        self.query_one("#history-title", Static).update(t("sidebar_history"))
+        self.query_one("#commands-title", Static).update(t("sidebar_commands"))
+        self.query_one("#commands-list", Static).update(
+            "\n".join(f"{cmd}  - {desc}" for cmd, desc in self._i18n.get_commands())
+        )
+        self.query_one("#user-input", Input).placeholder = t("placeholder")
+
+        palette = self.query_one("#command-palette", OptionList)
+        palette.clear_options()
+        palette.add_options([f"{cmd}  - {desc}" for cmd, desc in self._i18n.get_commands()])
 
     @on(Input.Changed, "#user-input")
     def handle_input_changed(self, event: Input.Changed) -> None:
@@ -150,7 +141,7 @@ class NL2SQLApp(App):
             filter_text = value[1:].lower()
             options = [
                 f"{cmd}  - {desc}"
-                for cmd, desc in COMMANDS
+                for cmd, desc in self._i18n.get_commands()
                 if filter_text in cmd.lower()
             ]
             if options:
@@ -183,13 +174,13 @@ class NL2SQLApp(App):
     @on(OptionList.OptionSelected, "#command-palette")
     def handle_option_selected(self, event: OptionList.OptionSelected) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        option_text = COMMANDS[event.option_index][0] if event.option_index < len(COMMANDS) else None
-        if option_text:
+        option = palette.get_option_at_index(event.option_index)
+        if option:
+            command = str(option.prompt).split("  ")[0].strip()
             palette.remove_class("visible")
             self._command_index = -1
-            input_widget = self.query_one("#user-input", Input)
-            input_widget.value = ""
-            self.run_command(option_text)
+            self.query_one("#user-input", Input).value = ""
+            self.run_command(command)
 
     @on(Input.Submitted, "#user-input")
     def handle_input(self, event: Input.Submitted) -> None:
@@ -215,45 +206,41 @@ class NL2SQLApp(App):
         asyncio.ensure_future(self.handle_question(question))
 
     async def handle_question(self, question: str) -> None:
+        t = self._i18n.t
         log = self.query_one("#message-log", RichLog)
         history_log = self.query_one("#history-log", RichLog)
 
-        log.write(f"[bold blue]You:[/] {question}")
+        log.write(f"[bold blue]{t('you_label')}:[/] {question}")
         history_log.write(f"[dim]{question[:30]}...[/]" if len(question) > 30 else f"[dim]{question}[/]")
 
-        log.write("[dim]Thinking...[/]")
+        log.write(f"[dim]{t('thinking')}[/]")
 
         try:
             from app.agents.sql_agent import ask
             result = await ask(question)
 
             if result.get("error"):
-                log.write(f"[bold red]Error:[/] {result['error']}")
+                log.write(f"[bold red]{t('error_label')}:[/] {result['error']}")
             else:
-                log.write(f"[bold green]SQL:[/] {result['sql']}")
+                log.write(f"[bold green]{t('sql_label')}:[/] {result['sql']}")
                 if result.get("columns") and result.get("rows"):
-                    log.write(f"[dim]Results: {len(result['rows'])} rows[/]")
+                    log.write(f"[dim]{t('results_label')}: {len(result['rows'])} {t('rows_unit')}[/]")
         except Exception as e:
-            log.write(f"[bold red]Error:[/] {e}")
+            log.write(f"[bold red]{t('error_label')}:[/] {e}")
 
     async def handle_command(self, command: str) -> None:
+        t = self._i18n.t
         log = self.query_one("#message-log", RichLog)
 
         cmd = command.lower().strip()
 
         if cmd == "/help":
-            log.write("[bold yellow]Commands:[/]\n"
-                      "  /help     - Show this help\n"
-                      "  /clear    - Clear message area\n"
-                      "  /history  - Show chat history\n"
-                      "  /export   - Export history to nl2sql_history.txt\n"
-                      "  /config   - Show current configuration\n"
-                      "  /schema   - Show database schema")
+            log.write(t("help_text"))
         elif cmd == "/clear":
             self.query_one("#message-log", RichLog).clear()
-            log.write("[dim]Messages cleared[/]")
+            log.write(f"[dim]{t('cleared')}[/]")
         elif cmd == "/history":
-            log.write("[bold yellow]Chat History:[/]")
+            log.write(f"[bold yellow]{t('history_title')}:[/]")
             history = self.query_one("#history-log", RichLog)
             for line in history.lines:
                 log.write(f"  {line.text}")
@@ -264,7 +251,7 @@ class NL2SQLApp(App):
             from urllib.parse import urlparse
             parsed = urlparse(DATABASE_URL)
             masked_db = f"{parsed.scheme}://{parsed.hostname}" + (":{}".format(parsed.port) if parsed.port else "") if parsed.hostname else "(not set)"
-            log.write(f"[bold yellow]Config:[/]\n"
+            log.write(f"[bold yellow]{t('config_title')}:[/]\n"
                       f"  Database: {masked_db}\n"
                       f"  LLM: {MODEL_NAME}\n"
                       f"  API: {BASE_URL}")
@@ -272,13 +259,22 @@ class NL2SQLApp(App):
             from app.core.database import get_database_schema
             try:
                 schema = await get_database_schema()
-                log.write(f"[bold yellow]Schema:[/]\n{schema}")
+                log.write(f"[bold yellow]{t('schema_title')}:[/]\n{schema}")
             except Exception as e:
-                log.write(f"[bold red]Error fetching schema:[/] {e}")
+                log.write(f"[bold red]{t('schema_error')}:[/] {e}")
+        elif cmd.startswith("/lang"):
+            parts = cmd.split()
+            if len(parts) >= 2 and parts[1] in ("en", "zh"):
+                self._i18n.switch_lang(parts[1])
+                self._update_ui_texts()
+                log.write(f"[green]{t('lang_changed')}[/]")
+            else:
+                log.write("[dim]Usage: /lang [en|zh][/]")
         else:
-            log.write(f"[red]Unknown command: {command}[/]")
+            log.write(f"[red]{t('unknown_command')}: {command}[/]")
 
     async def export_history(self) -> None:
+        t = self._i18n.t
         log = self.query_one("#message-log", RichLog)
         history = self.query_one("#history-log", RichLog)
 
@@ -286,9 +282,9 @@ class NL2SQLApp(App):
             with open("nl2sql_history.txt", "w", encoding="utf-8") as f:
                 for line in history.lines:
                     f.write(line.text + "\n")
-            log.write("[green]History exported to nl2sql_history.txt[/]")
+            log.write(f"[green]{t('export_success')}[/]")
         except Exception as e:
-            log.write(f"[red]Export failed: {e}[/]")
+            log.write(f"[bold red]{t('export_error')}:[/] {e}")
 
     def action_clear_messages(self) -> None:
         self.query_one("#message-log", RichLog).clear()

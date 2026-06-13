@@ -77,7 +77,7 @@ async def test_clear_command():
 
         log = app.query_one("#message-log")
         text = get_richlog_text(log)
-        assert "cleared" in text.lower() or "Messages cleared" in text, f"/clear output missing. Got: {text[:300]}"
+        assert "cleared" in text.lower() or "消息已清空" in text or "Messages cleared" in text, f"/clear output missing. Got: {text[:300]}"
         print("PASS: /clear command works")
     return True
 
@@ -128,7 +128,7 @@ async def test_unknown_command():
 
         log = app.query_one("#message-log")
         text = get_richlog_text(log)
-        assert "Unknown" in text or "unknown" in text, f"Unknown command output missing. Got: {text[:300]}"
+        assert "Unknown" in text or "unknown" in text or "未知命令" in text, f"Unknown command output missing. Got: {text[:300]}"
         print("PASS: Unknown command handling works")
     return True
 
@@ -188,7 +188,7 @@ async def test_question_error_mocked():
 
             log = app.query_one("#message-log")
             text = get_richlog_text(log)
-            assert "Error" in text or "error" in text, f"Error message not shown. Got: {text[:500]}"
+            assert "Error" in text or "error" in text or "错误" in text, f"Error message not shown. Got: {text[:500]}"
             print("PASS: Error handling works")
     return True
 
