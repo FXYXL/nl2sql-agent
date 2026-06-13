@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from time import time
 
 from sqlalchemy import MetaData, text
@@ -16,6 +17,11 @@ _cached_schema: str | None = None
 _cache_timestamp: float = 0.0
 _cache_ttl_seconds = 300
 _cache_lock = asyncio.Lock()
+
+_WRITE_PATTERN = re.compile(
+    r'^\s*(INSERT|UPDATE|DELETE|REPLACE|CALL)\b',
+    re.IGNORECASE,
+)
 
 
 def _is_cache_valid() -> bool:
@@ -53,13 +59,24 @@ async def get_database_schema() -> str:
 
 
 async def execute_sql(sql: str) -> tuple[list[str], list[list]]:
-    limited_sql = sql.rstrip().rstrip(";")
-    limited_sql = f"SELECT * FROM ({limited_sql}) AS _sub LIMIT {MAX_SQL_ROWS}"
+    clean_sql = sql.strip().rstrip(";")
+    is_write = bool(_WRITE_PATTERN.match(clean_sql))
 
-    logger.info("Executing SQL: %s", limited_sql[:500])
+    if is_write:
+        exec_sql = clean_sql
+    else:
+        exec_sql = f"SELECT * FROM ({clean_sql}) AS _sub LIMIT {MAX_SQL_ROWS}"
+
+    logger.info("Executing SQL: %s", exec_sql[:500])
     async with engine.connect() as conn:
-        result = await conn.execute(text(limited_sql))
-        columns = list(result.keys())
-        rows = [list(row) for row in result.fetchall()]
-        logger.info("Query returned %d rows", len(rows))
-        return columns, rows
+        if is_write:
+            result = await conn.execute(text(exec_sql))
+            await conn.commit()
+            affected = result.rowcount
+            return ["affected_rows"], [[affected]]
+        else:
+            result = await conn.execute(text(exec_sql))
+            columns = list(result.keys())
+            rows = [list(row) for row in result.fetchall()]
+            logger.info("Query returned %d rows", len(rows))
+            return columns, rows
