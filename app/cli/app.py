@@ -31,6 +31,10 @@ class NL2SQLApp(App):
         layout: horizontal;
     }
 
+    #root {
+        height: 1fr;
+    }
+
     #main-area {
         width: 1fr;
         height: 100%;
@@ -60,11 +64,12 @@ class NL2SQLApp(App):
     }
 
     #history-log {
-        height: 10;
+        height: 1fr;
+        max-height: 15;
     }
 
     #commands-list {
-        height: 1fr;
+        height: auto;
     }
 
     #command-palette {
