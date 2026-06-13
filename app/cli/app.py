@@ -32,7 +32,7 @@ class NL2SQLApp(App):
     }
 
     #root {
-        height: 1fr;
+        height: 100%;
     }
 
     #main-area {
@@ -54,9 +54,9 @@ class NL2SQLApp(App):
     }
 
     #input-container {
-        height: 3;
+        height: 5;
         border: solid $primary;
-        padding: 0 1;
+        padding: 1;
     }
 
     #user-input {
