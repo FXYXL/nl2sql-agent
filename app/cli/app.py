@@ -5,10 +5,13 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
 from rich.table import Table
-from rich.text import Text
 import time
 
 from app.cli.i18n import I18n
+from app.cli.history import (
+    save_input_history, load_input_history,
+    save_chat_message, load_chat_history, clear_chat_history,
+)
 
 
 class Sidebar(Static):
@@ -101,11 +104,13 @@ class NL2SQLApp(App):
         super().__init__()
         self._command_index = -1
         self._i18n = I18n()
-        self._input_history: list[str] = []
+        self._input_history: list[str] = load_input_history()
         self._history_index = -1
         self._last_sql: str = ""
         self._last_result: dict = {}
         self._pending_clear = False
+        self._pending_write: str = ""
+        self._write_mode = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -122,9 +127,26 @@ class NL2SQLApp(App):
 
     def on_mount(self) -> None:
         self._update_ui_texts()
-        self.query_one("#message-log", RichLog).write(self._i18n.t("welcome"))
+        self._load_persisted_history()
         palette = self.query_one("#command-palette", OptionList)
         palette.remove_class("visible")
+
+    def _load_persisted_history(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        chat_messages = load_chat_history()
+        if chat_messages:
+            for msg in chat_messages[-20:]:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    log.write(f"[bold blue]{t('you_label')}:[/] {content}")
+                elif role == "assistant":
+                    log.write(content)
+            log.write(f"[dim]{t('history_loaded')}[/]")
+        else:
+            log.write(t("welcome"))
 
     def _update_ui_texts(self) -> None:
         t = self._i18n.t
@@ -223,11 +245,23 @@ class NL2SQLApp(App):
                 )
             return
 
+        if self._pending_write:
+            sql = self._pending_write
+            self._pending_write = ""
+            if value.lower() in ("y", "yes", "是", "确认"):
+                self.run_write(sql)
+            else:
+                self.query_one("#message-log", RichLog).write(
+                    f"[dim]{self._i18n.t('write_cancelled')}[/]"
+                )
+            return
+
         if value.startswith("/"):
             self.run_command(value)
         else:
             if value not in self._input_history:
                 self._input_history.append(value)
+                save_input_history(self._input_history)
             self.run_question(value)
 
     def run_command(self, command: str) -> None:
@@ -237,6 +271,10 @@ class NL2SQLApp(App):
     def run_question(self, question: str) -> None:
         import asyncio
         asyncio.ensure_future(self.handle_question(question))
+
+    def run_write(self, sql: str) -> None:
+        import asyncio
+        asyncio.ensure_future(self.execute_write(sql))
 
     def _build_result_table(self, columns: list[str], rows: list[list]) -> Table:
         table = Table(show_header=True, header_style="bold cyan", show_lines=True, expand=True)
@@ -253,13 +291,14 @@ class NL2SQLApp(App):
 
         log.write(f"[bold blue]{t('you_label')}:[/] {question}")
         history_log.write(f"[dim]{question[:30]}...[/]" if len(question) > 30 else f"[dim]{question}[/]")
+        save_chat_message("user", question)
 
         log.write(f"[dim]{t('thinking')}[/]")
 
         start_time = time.time()
         try:
             from app.agents.sql_agent import ask
-            result = await ask(question)
+            result = await ask(question, allow_writes=self._write_mode)
             elapsed = time.time() - start_time
 
             self._last_sql = result.get("sql", "")
@@ -267,6 +306,11 @@ class NL2SQLApp(App):
 
             if result.get("error"):
                 log.write(f"[bold red]{t('error_label')}:[/] {result['error']}")
+            elif result.get("is_write"):
+                if result.get("affected_rows") is not None:
+                    log.write(f"[bold green]{t('write_executed')}[/] ({result['affected_rows']} rows affected)")
+                else:
+                    log.write(f"[bold green]{t('write_executed')}[/]")
             else:
                 log.write(f"[bold green]{t('sql_label')}:[/] {result['sql']}")
 
@@ -287,6 +331,34 @@ class NL2SQLApp(App):
                     log.write(f"[dim]{t('results_label')}: 0 {t('rows_unit')}[/]")
 
                 log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
+
+            if result.get("sql"):
+                save_chat_message("assistant", f"SQL: {result['sql']}")
+        except Exception as e:
+            elapsed = time.time() - start_time
+            log.write(f"[bold red]{t('error_label')}:[/] {e}")
+            log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
+
+    async def execute_write(self, sql: str) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        log.write(f"[bold green]{t('sql_label')}:[/] {sql}")
+        log.write(f"[dim]{t('thinking')}[/]")
+
+        start_time = time.time()
+        try:
+            from app.core.database import execute_sql
+            columns, rows = await execute_sql(sql)
+            elapsed = time.time() - start_time
+
+            if rows:
+                log.write(f"[bold green]{t('write_executed')}[/] ({rows[0][0]} rows affected)")
+            else:
+                log.write(f"[bold green]{t('write_executed')}[/]")
+
+            log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
+            save_chat_message("assistant", f"Write: {sql}")
         except Exception as e:
             elapsed = time.time() - start_time
             log.write(f"[bold red]{t('error_label')}:[/] {e}")
@@ -317,10 +389,12 @@ class NL2SQLApp(App):
             from urllib.parse import urlparse
             parsed = urlparse(DATABASE_URL)
             masked_db = f"{parsed.scheme}://{parsed.hostname}" + (":{}".format(parsed.port) if parsed.port else "") if parsed.hostname else "(not set)"
+            write_status = "ON" if self._write_mode else "OFF"
             log.write(f"[bold yellow]{t('config_title')}:[/]\n"
                       f"  Database: {masked_db}\n"
                       f"  LLM: {MODEL_NAME}\n"
-                      f"  API: {BASE_URL}")
+                      f"  API: {BASE_URL}\n"
+                      f"  Write mode: {write_status}")
         elif cmd == "/schema":
             from app.core.database import get_database_schema
             try:
@@ -328,6 +402,18 @@ class NL2SQLApp(App):
                 log.write(f"[bold yellow]{t('schema_title')}:[/]\n{schema}")
             except Exception as e:
                 log.write(f"[bold red]{t('schema_error')}:[/] {e}")
+        elif cmd == "/write":
+            self._write_mode = not self._write_mode
+            if self._write_mode:
+                log.write(f"[bold yellow]{t('write_mode_on')}[/]")
+            else:
+                log.write(f"[dim]{t('write_mode_off')}[/]")
+        elif cmd.startswith("/db"):
+            parts = command.split(maxsplit=1)
+            if len(parts) >= 2:
+                await self.switch_database(parts[1])
+            else:
+                log.write(f"[dim]{t('db_usage')}[/]")
         elif cmd.startswith("/lang"):
             parts = cmd.split()
             if len(parts) >= 2 and parts[1] in ("en", "zh"):
@@ -341,6 +427,33 @@ class NL2SQLApp(App):
                 log.write(f"[green]{t('lang_changed')}[/]")
         else:
             log.write(f"[red]{t('unknown_command')}: {command}[/]")
+
+    async def switch_database(self, url: str) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        try:
+            from app.core.database import engine
+            from sqlalchemy.ext.asyncio import create_async_engine
+            from app.core import database
+
+            new_engine = create_async_engine(url, echo=False)
+
+            async with new_engine.begin() as conn:
+                await conn.execute(
+                    __import__("sqlalchemy").text("SELECT 1")
+                )
+
+            database.engine.dispose()
+            database.engine = new_engine
+            database.invalidate_schema_cache()
+
+            import os
+            os.environ["DATABASE_URL"] = url
+
+            log.write(f"[green]{t('db_connected')}[/]")
+        except Exception as e:
+            log.write(f"[bold red]{t('db_connect_error')}:[/] {e}")
 
     async def export_history(self) -> None:
         t = self._i18n.t

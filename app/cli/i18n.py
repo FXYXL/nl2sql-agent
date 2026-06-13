@@ -26,6 +26,15 @@ TRANSLATIONS = {
         "unknown_command": "Unknown command",
         "lang_changed": "Language switched to English",
         "lang_switch": "Switch to Chinese",
+        "write_mode_on": "Write mode ON - SQL writes allowed",
+        "write_mode_off": "Write mode OFF - read only",
+        "confirm_write": "This will execute a write operation. Type y to confirm",
+        "write_executed": "Write operation executed",
+        "write_cancelled": "Write operation cancelled",
+        "db_connected": "Database connected",
+        "db_connect_error": "Database connection failed",
+        "db_usage": "Usage: /db <mysql+aiomysql://user:pass@host:port/db>",
+        "history_loaded": "History loaded from disk",
         "commands": {
             "/help": "Show help",
             "/clear": "Clear messages",
@@ -34,6 +43,8 @@ TRANSLATIONS = {
             "/export csv": "Export last result to CSV",
             "/config": "Show config",
             "/schema": "Show DB schema",
+            "/write": "Toggle write mode",
+            "/db": "Switch database",
         },
         "help_text": (
             "[bold yellow]Commands:[/]\n"
@@ -44,6 +55,8 @@ TRANSLATIONS = {
             "  /export csv - Export last result to CSV\n"
             "  /config     - Show current configuration\n"
             "  /schema     - Show database schema\n"
+            "  /write      - Toggle write mode (INSERT/UPDATE/DELETE)\n"
+            "  /db         - Switch database connection\n"
             "  /lang       - Switch to Chinese\n\n"
             "[dim]Keyboard shortcuts:[/]\n"
             "  Up/Down     - Browse input history\n"
@@ -79,6 +92,15 @@ TRANSLATIONS = {
         "unknown_command": "未知命令",
         "lang_changed": "语言已切换为中文",
         "lang_switch": "切换到英文",
+        "write_mode_on": "写入模式已开启 - 允许 SQL 写入操作",
+        "write_mode_off": "写入模式已关闭 - 只读模式",
+        "confirm_write": "即将执行写入操作，输入 y 确认",
+        "write_executed": "写入操作已执行",
+        "write_cancelled": "写入操作已取消",
+        "db_connected": "数据库已连接",
+        "db_connect_error": "数据库连接失败",
+        "db_usage": "用法: /db <mysql+aiomysql://用户名:密码@主机:端口/数据库>",
+        "history_loaded": "历史记录已从磁盘加载",
         "commands": {
             "/help": "显示帮助",
             "/clear": "清空消息",
@@ -87,6 +109,8 @@ TRANSLATIONS = {
             "/export csv": "导出上次结果到 CSV",
             "/config": "查看配置",
             "/schema": "查看数据库结构",
+            "/write": "切换写入模式",
+            "/db": "切换数据库",
         },
         "help_text": (
             "[bold yellow]命令列表:[/]\n"
@@ -97,6 +121,8 @@ TRANSLATIONS = {
             "  /export csv - 导出上次结果到 CSV\n"
             "  /config     - 查看当前配置\n"
             "  /schema     - 查看数据库结构\n"
+            "  /write      - 切换写入模式 (INSERT/UPDATE/DELETE)\n"
+            "  /db         - 切换数据库连接\n"
             "  /lang       - 切换到英文\n\n"
             "[dim]快捷键:[/]\n"
             "  上/下        - 翻看输入历史\n"
