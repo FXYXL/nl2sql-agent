@@ -80,7 +80,7 @@ class NL2SQLApp(App):
 
     #command-palette {
         display: none;
-        dock: bottom;
+        dock: top;
         max-height: 15;
         border: solid $accent;
         padding: 1;
