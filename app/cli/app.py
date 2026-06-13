@@ -1,6 +1,6 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, Input, RichLog
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
 
@@ -28,11 +28,11 @@ class NL2SQLApp(App):
 
     CSS = """
     Screen {
-        layout: horizontal;
+        layout: vertical;
     }
 
     #root {
-        height: 100%;
+        height: 1fr;
     }
 
     #main-area {
@@ -47,6 +47,7 @@ class NL2SQLApp(App):
     }
 
     #sidebar {
+        dock: right;
         width: 30;
         height: 100%;
         border: solid $secondary;
@@ -54,6 +55,7 @@ class NL2SQLApp(App):
     }
 
     #input-container {
+        dock: bottom;
         height: 5;
         border: solid $primary;
         padding: 1;
@@ -93,14 +95,14 @@ class NL2SQLApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal(id="root"):
+        with Vertical(id="root"):
+            yield Sidebar(id="sidebar")
             with Vertical(id="main-area"):
                 with VerticalScroll(id="message-container"):
                     yield RichLog(id="message-log", auto_scroll=True, markup=True)
                 with Vertical(id="input-container"):
                     yield Static("/ for commands", id="command-palette")
                     yield Input(placeholder="Ask a question...", id="user-input")
-            yield Sidebar(id="sidebar")
         yield Footer()
 
     def on_mount(self) -> None:
