@@ -1,6 +1,6 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, Input, RichLog
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
 
@@ -35,9 +35,13 @@ class NL2SQLApp(App):
         height: 1fr;
     }
 
+    #content-area {
+        height: 1fr;
+    }
+
     #main-area {
         width: 1fr;
-        height: 100%;
+        height: 1fr;
     }
 
     #message-container {
@@ -49,14 +53,14 @@ class NL2SQLApp(App):
     #sidebar {
         dock: right;
         width: 30;
-        height: 100%;
+        height: 1fr;
         border: solid $secondary;
         padding: 1;
     }
 
     #input-container {
         dock: bottom;
-        height: 5;
+        height: 7;
         border: solid $primary;
         padding: 1;
     }
@@ -76,7 +80,7 @@ class NL2SQLApp(App):
 
     #command-palette {
         display: none;
-        dock: top;
+        dock: bottom;
         max-height: 15;
         border: solid $accent;
         padding: 1;
@@ -96,13 +100,14 @@ class NL2SQLApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="root"):
-            yield Sidebar(id="sidebar")
-            with Vertical(id="main-area"):
-                with VerticalScroll(id="message-container"):
-                    yield RichLog(id="message-log", auto_scroll=True, markup=True)
-                with Vertical(id="input-container"):
-                    yield Static("/ for commands", id="command-palette")
-                    yield Input(placeholder="Ask a question...", id="user-input")
+            with Horizontal(id="content-area"):
+                with Vertical(id="main-area"):
+                    with VerticalScroll(id="message-container"):
+                        yield RichLog(id="message-log", auto_scroll=True, markup=True)
+                yield Sidebar(id="sidebar")
+            with Vertical(id="input-container"):
+                yield Static("/ for commands", id="command-palette")
+                yield Input(placeholder="Ask a question...", id="user-input")
         yield Footer()
 
     def on_mount(self) -> None:
