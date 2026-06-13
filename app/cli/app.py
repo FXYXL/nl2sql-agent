@@ -142,15 +142,18 @@ class NL2SQLApp(App):
 
         log.write("[dim]Thinking...[/]")
 
-        from app.agents.sql_agent import ask
-        result = await ask(question)
+        try:
+            from app.agents.sql_agent import ask
+            result = await ask(question)
 
-        if result.get("error"):
-            log.write(f"[bold red]Error:[/] {result['error']}")
-        else:
-            log.write(f"[bold green]SQL:[/] {result['sql']}")
-            if result.get("columns") and result.get("rows"):
-                log.write(f"[dim]Results: {len(result['rows'])} rows[/]")
+            if result.get("error"):
+                log.write(f"[bold red]Error:[/] {result['error']}")
+            else:
+                log.write(f"[bold green]SQL:[/] {result['sql']}")
+                if result.get("columns") and result.get("rows"):
+                    log.write(f"[dim]Results: {len(result['rows'])} rows[/]")
+        except Exception as e:
+            log.write(f"[bold red]Error:[/] {e}")
 
     async def handle_command(self, command: str) -> None:
         log = self.query_one("#message-log", RichLog)
@@ -177,14 +180,20 @@ class NL2SQLApp(App):
             await self.export_history()
         elif cmd == "/config":
             from app.core.config import DATABASE_URL, BASE_URL, MODEL_NAME
+            from urllib.parse import urlparse
+            parsed = urlparse(DATABASE_URL)
+            masked_db = f"{parsed.scheme}://{parsed.hostname}" + (":{}".format(parsed.port) if parsed.port else "") if parsed.hostname else "(not set)"
             log.write(f"[bold yellow]Config:[/]\n"
-                      f"  Database: {DATABASE_URL[:30]}...\n"
+                      f"  Database: {masked_db}\n"
                       f"  LLM: {MODEL_NAME}\n"
                       f"  API: {BASE_URL}")
         elif cmd == "/schema":
             from app.core.database import get_database_schema
-            schema = await get_database_schema()
-            log.write(f"[bold yellow]Schema:[/]\n{schema}")
+            try:
+                schema = await get_database_schema()
+                log.write(f"[bold yellow]Schema:[/]\n{schema}")
+            except Exception as e:
+                log.write(f"[bold red]Error fetching schema:[/] {e}")
         else:
             log.write(f"[red]Unknown command: {command}[/]")
 
