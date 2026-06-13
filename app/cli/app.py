@@ -11,6 +11,7 @@ from app.cli.i18n import I18n
 from app.cli.history import (
     save_input_history, load_input_history,
     save_chat_message, load_chat_history, clear_chat_history,
+    save_db_config, load_db_config,
 )
 
 
@@ -127,9 +128,39 @@ class NL2SQLApp(App):
 
     def on_mount(self) -> None:
         self._update_ui_texts()
+        self._load_persisted_db_config()
         self._load_persisted_history()
         palette = self.query_one("#command-palette", OptionList)
         palette.remove_class("visible")
+
+    def _load_persisted_db_config(self) -> None:
+        saved_url = load_db_config()
+        if saved_url:
+            import os
+            current_url = os.environ.get("DATABASE_URL", "")
+            if saved_url != current_url:
+                import asyncio
+                asyncio.ensure_future(self._apply_db_config(saved_url))
+
+    async def _apply_db_config(self, url: str) -> None:
+        try:
+            from sqlalchemy.ext.asyncio import create_async_engine
+            from app.core import database
+
+            new_engine = create_async_engine(url, echo=False)
+            async with new_engine.begin() as conn:
+                await conn.execute(
+                    __import__("sqlalchemy").text("SELECT 1")
+                )
+
+            database.engine.dispose()
+            database.engine = new_engine
+            database.invalidate_schema_cache()
+
+            import os
+            os.environ["DATABASE_URL"] = url
+        except Exception:
+            pass
 
     def _load_persisted_history(self) -> None:
         t = self._i18n.t
@@ -450,6 +481,7 @@ class NL2SQLApp(App):
 
             import os
             os.environ["DATABASE_URL"] = url
+            save_db_config(url)
 
             log.write(f"[green]{t('db_connected')}[/]")
         except Exception as e:

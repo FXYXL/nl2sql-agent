@@ -7,6 +7,7 @@ from datetime import datetime
 HISTORY_DIR = Path(os.getenv("NL2SQL_HISTORY_DIR", ".nl2sql"))
 CHAT_HISTORY_FILE = HISTORY_DIR / "chat_history.json"
 INPUT_HISTORY_FILE = HISTORY_DIR / "input_history.json"
+DB_CONFIG_FILE = HISTORY_DIR / "db_config.json"
 
 
 def _ensure_dir():
@@ -63,3 +64,18 @@ def load_chat_history(max_size: int = 100) -> list[dict]:
 def clear_chat_history() -> None:
     if CHAT_HISTORY_FILE.exists():
         CHAT_HISTORY_FILE.unlink()
+
+
+def save_db_config(database_url: str) -> None:
+    _ensure_dir()
+    DB_CONFIG_FILE.write_text(json.dumps({"database_url": database_url}, ensure_ascii=False), encoding="utf-8")
+
+
+def load_db_config() -> str | None:
+    if not DB_CONFIG_FILE.exists():
+        return None
+    try:
+        data = json.loads(DB_CONFIG_FILE.read_text(encoding="utf-8"))
+        return data.get("database_url")
+    except Exception:
+        return None
