@@ -2,6 +2,8 @@ import asyncio
 import os
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from app.cli.app import NL2SQLApp
 
 
@@ -35,6 +37,7 @@ async def type_and_submit(app, pilot, text):
     await pilot.pause()
 
 
+@pytest.mark.asyncio
 async def test_app_starts():
     """Test that the app starts without errors."""
     app = NL2SQLApp()
@@ -48,6 +51,7 @@ async def test_app_starts():
     return True
 
 
+@pytest.mark.asyncio
 async def test_help_command():
     """Test /help command."""
     app = NL2SQLApp()
@@ -61,6 +65,7 @@ async def test_help_command():
     return True
 
 
+@pytest.mark.asyncio
 async def test_clear_command():
     """Test /clear command."""
     app = NL2SQLApp()
@@ -77,6 +82,7 @@ async def test_clear_command():
     return True
 
 
+@pytest.mark.asyncio
 async def test_export_command():
     """Test /export command creates the file."""
     app = NL2SQLApp()
@@ -99,6 +105,7 @@ async def test_export_command():
     return True
 
 
+@pytest.mark.asyncio
 async def test_config_command():
     """Test /config command."""
     app = NL2SQLApp()
@@ -112,6 +119,7 @@ async def test_config_command():
     return True
 
 
+@pytest.mark.asyncio
 async def test_unknown_command():
     """Test unknown command handling."""
     app = NL2SQLApp()
@@ -125,6 +133,7 @@ async def test_unknown_command():
     return True
 
 
+@pytest.mark.asyncio
 async def test_empty_input():
     """Test that empty input is handled gracefully."""
     app = NL2SQLApp()
@@ -138,6 +147,7 @@ async def test_empty_input():
     return True
 
 
+@pytest.mark.asyncio
 async def test_question_input_mocked():
     """Test question handling with mocked backend."""
     app = NL2SQLApp()
@@ -160,6 +170,7 @@ async def test_question_input_mocked():
     return True
 
 
+@pytest.mark.asyncio
 async def test_question_error_mocked():
     """Test question handling when backend returns error."""
     app = NL2SQLApp()
@@ -182,6 +193,7 @@ async def test_question_error_mocked():
     return True
 
 
+@pytest.mark.asyncio
 async def test_sidebar_toggle():
     """Test sidebar toggle with Ctrl+H."""
     app = NL2SQLApp()
@@ -198,6 +210,7 @@ async def test_sidebar_toggle():
     return True
 
 
+@pytest.mark.asyncio
 async def test_ctrl_l_clear():
     """Test Ctrl+L shortcut to clear messages."""
     app = NL2SQLApp()
@@ -218,6 +231,7 @@ async def test_ctrl_l_clear():
     return True
 
 
+@pytest.mark.asyncio
 async def test_export_includes_history():
     """Test that export includes previously typed questions."""
     app = NL2SQLApp()

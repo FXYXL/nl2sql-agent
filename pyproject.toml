@@ -20,3 +20,9 @@ nl2sql-cli = "app.cli.__main__:main"
 
 [tool.uv]
 index-url = "https://mirrors.aliyun.com/pypi/simple/"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]
