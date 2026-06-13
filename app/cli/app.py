@@ -5,13 +5,18 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
 from rich.table import Table
+from rich.panel import Panel
 import time
+import re
 
 from app.cli.i18n import I18n
 from app.cli.history import (
     save_input_history, load_input_history,
     save_chat_message, load_chat_history, clear_chat_history,
     save_db_config, load_db_config,
+)
+from app.cli.favorites import (
+    load_favorites, save_favorite, remove_favorite, get_favorite,
 )
 
 
@@ -75,6 +80,18 @@ class NL2SQLApp(App):
         width: 100%;
     }
 
+    #autocomplete-popup {
+        display: none;
+        dock: bottom;
+        max-height: 10;
+        border: solid $accent;
+        padding: 1;
+    }
+
+    #autocomplete-popup.visible {
+        display: block;
+    }
+
     #history-log {
         height: 1fr;
         max-height: 15;
@@ -95,6 +112,12 @@ class NL2SQLApp(App):
     #command-palette.visible {
         display: block;
     }
+
+    #status-bar {
+        height: 1;
+        dock: bottom;
+        background: $primary-background-lighten-2;
+    }
     """
 
     BINDINGS = [
@@ -103,6 +126,7 @@ class NL2SQLApp(App):
         Binding("ctrl+h", "toggle_sidebar", "Sidebar"),
         Binding("up", "prev_command", "Prev", show=False, priority=True),
         Binding("down", "next_command", "Next", show=False, priority=True),
+        Binding("tab", "accept_autocomplete", "Accept", show=False, priority=True),
     ]
 
     def __init__(self):
@@ -113,9 +137,15 @@ class NL2SQLApp(App):
         self._history_index = -1
         self._last_sql: str = ""
         self._last_result: dict = {}
+        self._all_results: list[dict] = []
+        self._current_page = 0
+        self._rows_per_page = 50
         self._pending_clear = False
         self._pending_write: str = ""
         self._write_mode = False
+        self._autocomplete_items: list[str] = []
+        self._autocomplete_index = -1
+        self._schema_cache: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -123,19 +153,24 @@ class NL2SQLApp(App):
             with Horizontal(id="content-area"):
                 with Vertical(id="main-area"):
                     yield OptionList(id="command-palette")
+                    yield OptionList(id="autocomplete-popup")
                     with VerticalScroll(id="message-container"):
                         yield RichLog(id="message-log", auto_scroll=True, markup=True)
                 yield Sidebar(id="sidebar")
             with Vertical(id="input-container"):
                 yield Input(id="user-input")
+        yield Static(id="status-bar")
         yield Footer()
 
     def on_mount(self) -> None:
         self._update_ui_texts()
         self._load_persisted_db_config()
         self._load_persisted_history()
+        self._update_status_bar()
         palette = self.query_one("#command-palette", OptionList)
         palette.remove_class("visible")
+        popup = self.query_one("#autocomplete-popup", OptionList)
+        popup.remove_class("visible")
 
     def _load_persisted_db_config(self) -> None:
         saved_url = load_db_config()
@@ -199,12 +234,32 @@ class NL2SQLApp(App):
         palette.clear_options()
         palette.add_options([f"{cmd}  - {desc}" for cmd, desc in self._i18n.get_commands()])
 
+    def _update_status_bar(self) -> None:
+        t = self._i18n.t
+        from app.core.config import MODEL_NAME
+        write_status = "[bold green]W[/]" if self._write_mode else "[dim]R[/]"
+        status = f" LLM:{MODEL_NAME} | {write_status}"
+        self.query_one("#status-bar", Static).update(status)
+
+    async def _load_schema_for_autocomplete(self) -> None:
+        if not self._schema_cache:
+            try:
+                from app.core.database import get_database_schema
+                schema = await get_database_schema()
+                tables = re.findall(r'表名: (\w+)', schema)
+                cols = re.findall(r'- (\w+) \(', schema)
+                self._schema_cache = tables + cols
+            except Exception:
+                self._schema_cache = []
+
     @on(Input.Changed, "#user-input")
     def handle_input_changed(self, event: Input.Changed) -> None:
         palette = self.query_one("#command-palette", OptionList)
+        popup = self.query_one("#autocomplete-popup", OptionList)
         value = event.value
 
         if value.startswith("/"):
+            popup.remove_class("visible")
             palette.add_class("visible")
             filter_text = value[1:].lower()
             options = [
@@ -223,9 +278,50 @@ class NL2SQLApp(App):
             palette.remove_class("visible")
             self._command_index = -1
 
+            if len(value) >= 2 and not value.startswith("/"):
+                import asyncio
+                asyncio.ensure_future(self._show_autocomplete(value))
+            else:
+                popup.remove_class("visible")
+
+    async def _show_autocomplete(self, typed: str) -> None:
+        await self._load_schema_for_autocomplete()
+        popup = self.query_one("#autocomplete-popup", OptionList)
+        typed_lower = typed.lower()
+
+        matches = [item for item in self._schema_cache if typed_lower in item.lower()]
+
+        if matches:
+            popup.clear_options()
+            popup.add_options(matches[:10])
+            popup.add_class("visible")
+            self._autocomplete_items = matches[:10]
+            self._autocomplete_index = 0
+            popup.highlighted = 0
+        else:
+            popup.remove_class("visible")
+
+    def action_accept_autocomplete(self) -> None:
+        popup = self.query_one("#autocomplete-popup", OptionList)
+        if "-visible" in popup.classes and self._autocomplete_items:
+            input_widget = self.query_one("#user-input", Input)
+            current = input_widget.value
+            parts = current.rsplit(" ", 1)
+            if len(parts) > 1:
+                input_widget.value = parts[0] + " " + self._autocomplete_items[self._autocomplete_index] + " "
+            else:
+                input_widget.value = self._autocomplete_items[self._autocomplete_index] + " "
+            popup.remove_class("visible")
+
     def action_prev_command(self) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        if "-visible" in palette.classes:
+        popup = self.query_one("#autocomplete-popup", OptionList)
+
+        if "-visible" in popup.classes:
+            if self._autocomplete_index > 0:
+                self._autocomplete_index -= 1
+                popup.highlighted = self._autocomplete_index
+        elif "-visible" in palette.classes:
             if self._command_index > 0:
                 self._command_index -= 1
                 palette.highlighted = self._command_index
@@ -237,7 +333,13 @@ class NL2SQLApp(App):
 
     def action_next_command(self) -> None:
         palette = self.query_one("#command-palette", OptionList)
-        if "-visible" in palette.classes:
+        popup = self.query_one("#autocomplete-popup", OptionList)
+
+        if "-visible" in popup.classes:
+            if self._autocomplete_index < len(self._autocomplete_items) - 1:
+                self._autocomplete_index += 1
+                popup.highlighted = self._autocomplete_index
+        elif "-visible" in palette.classes:
             if self._command_index < len(palette.option_count) - 1:
                 self._command_index += 1
                 palette.highlighted = self._command_index
@@ -264,10 +366,12 @@ class NL2SQLApp(App):
     @on(Input.Submitted, "#user-input")
     def handle_input(self, event: Input.Submitted) -> None:
         palette = self.query_one("#command-palette", OptionList)
+        popup = self.query_one("#autocomplete-popup", OptionList)
         value = event.value.strip()
         event.input.value = ""
 
         palette.remove_class("visible")
+        popup.remove_class("visible")
         self._command_index = -1
         self._history_index = -1
 
@@ -322,6 +426,26 @@ class NL2SQLApp(App):
             table.add_row(*[str(v) if v is not None else "NULL" for v in row])
         return table
 
+    def _show_paginated_results(self, columns: list[str], rows: list[list]) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        self._all_results = [{"columns": columns, "rows": rows}]
+        self._current_page = 0
+
+        total_rows = len(rows)
+        total_pages = max(1, (total_rows + self._rows_per_page - 1) // self._rows_per_page)
+
+        start = 0
+        end = min(self._rows_per_page, total_rows)
+        page_rows = rows[start:end]
+
+        table = self._build_result_table(columns, page_rows)
+        log.write(table)
+
+        if total_pages > 1:
+            log.write(f"[dim]{t('page_info').format(current=1, total=total_pages, count=total_rows)}[/]")
+
     async def handle_question(self, question: str) -> None:
         t = self._i18n.t
         log = self.query_one("#message-log", RichLog)
@@ -356,13 +480,7 @@ class NL2SQLApp(App):
                 rows = result.get("rows", [])
 
                 if columns and rows:
-                    table = self._build_result_table(columns, rows)
-                    log.write(table)
-
-                    if len(rows) >= 1000:
-                        log.write(f"[dim yellow]... {t('results_label')}: {len(rows)} {t('rows_unit')} ({t('truncated')})[/]")
-                    else:
-                        log.write(f"[dim]{t('results_label')}: {len(rows)} {t('rows_unit')}[/]")
+                    self._show_paginated_results(columns, rows)
                 elif columns:
                     log.write(f"[dim]{t('no_data')}[/]")
                 else:
@@ -442,6 +560,7 @@ class NL2SQLApp(App):
                 log.write(f"[bold red]{t('schema_error')}:[/] {e}")
         elif cmd == "/write":
             self._write_mode = not self._write_mode
+            self._update_status_bar()
             if self._write_mode:
                 log.write(f"[bold yellow]{t('write_mode_on')}[/]")
             else:
@@ -452,8 +571,6 @@ class NL2SQLApp(App):
                 await self.switch_database(parts[1])
             else:
                 log.write(f"[dim]{t('db_usage')}[/]")
-        elif cmd == "/quit":
-            self.exit()
         elif cmd == "/copy":
             if self._last_sql:
                 import subprocess
@@ -470,6 +587,20 @@ class NL2SQLApp(App):
                     log.write(f"[yellow]{self._last_sql}[/]")
             else:
                 log.write(f"[yellow]{t('no_sql_to_copy')}[/]")
+        elif cmd == "/ping":
+            await self.ping_database()
+        elif cmd == "/explain":
+            await self.explain_query()
+        elif cmd.startswith("/page"):
+            parts = cmd.split()
+            if len(parts) >= 2:
+                self.show_page(int(parts[1]))
+            else:
+                self.show_page(1)
+        elif cmd.startswith("/fav"):
+            await self.handle_fav_command(command)
+        elif cmd == "/quit":
+            self.exit()
         elif cmd.startswith("/lang"):
             parts = cmd.split()
             if len(parts) >= 2 and parts[1] in ("en", "zh"):
@@ -483,6 +614,138 @@ class NL2SQLApp(App):
                 log.write(f"[green]{t('lang_changed')}[/]")
         else:
             log.write(f"[red]{t('unknown_command')}: {command}[/]")
+
+    async def ping_database(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        start_time = time.time()
+        try:
+            from app.core.database import engine
+            from sqlalchemy import text
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            elapsed = time.time() - start_time
+            log.write(f"[green]{t('ping_ok')}[/] ({t('ping_latency')}: {elapsed:.3f}s)")
+        except Exception as e:
+            elapsed = time.time() - start_time
+            log.write(f"[bold red]{t('ping_fail')}:[/] {e}")
+
+    async def explain_query(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        if not self._last_sql:
+            log.write(f"[yellow]{t('no_sql_to_copy')}[/]")
+            return
+
+        sql = self._last_sql.strip()
+        if sql.upper().startswith("SELECT"):
+            explain_sql = f"EXPLAIN {sql}"
+        else:
+            log.write(f"[yellow]EXPLAIN only supports SELECT queries[/]")
+            return
+
+        try:
+            from app.core.database import execute_sql
+            columns, rows = await execute_sql(explain_sql)
+
+            log.write(f"[bold yellow]{t('explain_title')}:[/]")
+            table = self._build_result_table(columns, rows)
+            log.write(table)
+        except Exception as e:
+            log.write(f"[bold red]{t('error_label')}:[/] {e}")
+
+    def show_page(self, page_num: int) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        if not self._all_results:
+            log.write(f"[yellow]{t('no_pages')}[/]")
+            return
+
+        result = self._all_results[0]
+        columns = result["columns"]
+        rows = result["rows"]
+
+        total_rows = len(rows)
+        total_pages = max(1, (total_rows + self._rows_per_page - 1) // self._rows_per_page)
+
+        if page_num < 1 or page_num > total_pages:
+            log.write(f"[yellow]{t('no_pages')}[/]")
+            return
+
+        self._current_page = page_num - 1
+        start = self._current_page * self._rows_per_page
+        end = min(start + self._rows_per_page, total_rows)
+        page_rows = rows[start:end]
+
+        table = self._build_result_table(columns, page_rows)
+        log.write(table)
+        log.write(f"[dim]{t('page_info').format(current=page_num, total=total_pages, count=total_rows)}[/]")
+
+    async def handle_fav_command(self, command: str) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+
+        parts = command.split(maxsplit=2)
+        if len(parts) < 2:
+            log.write(f"[dim]{t('fav_usage')}[/]")
+            return
+
+        action = parts[1].lower()
+
+        if action == "save":
+            if self._last_sql:
+                name = parts[2] if len(parts) >= 3 else f"fav_{len(load_favorites()) + 1}"
+                save_favorite(name, self._last_sql)
+                log.write(f"[green]{t('fav_saved')}: {name}[/]")
+            else:
+                log.write(f"[yellow]{t('no_sql_to_copy')}[/]")
+
+        elif action == "list":
+            favorites = load_favorites()
+            if not favorites:
+                log.write(f"[dim]{t('fav_empty')}[/]")
+                return
+
+            log.write(f"[bold yellow]{t('fav_list_title')}:[/]")
+            table = Table(show_header=True, header_style="bold cyan", show_lines=True)
+            table.add_column("#", style="dim")
+            table.add_column("Name")
+            table.add_column("SQL", overflow="ellipsis")
+            for i, fav in enumerate(favorites):
+                table.add_row(str(i + 1), fav["name"], fav["sql"][:50])
+            log.write(table)
+
+        elif action == "run":
+            if len(parts) >= 3:
+                try:
+                    idx = int(parts[2]) - 1
+                    fav = get_favorite(idx)
+                    if fav:
+                        self.run_question(fav["sql"])
+                    else:
+                        log.write(f"[yellow]{t('fav_not_found')}[/]")
+                except ValueError:
+                    log.write(f"[dim]{t('fav_usage')}[/]")
+            else:
+                log.write(f"[dim]{t('fav_usage')}[/]")
+
+        elif action == "del":
+            if len(parts) >= 3:
+                try:
+                    idx = int(parts[2]) - 1
+                    if remove_favorite(idx):
+                        log.write(f"[green]{t('fav_deleted')}[/]")
+                    else:
+                        log.write(f"[yellow]{t('fav_not_found')}[/]")
+                except ValueError:
+                    log.write(f"[dim]{t('fav_usage')}[/]")
+            else:
+                log.write(f"[dim]{t('fav_usage')}[/]")
+        else:
+            log.write(f"[dim]{t('fav_usage')}[/]")
 
     async def switch_database(self, url: str) -> None:
         t = self._i18n.t

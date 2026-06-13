@@ -37,6 +37,19 @@ TRANSLATIONS = {
         "history_loaded": "History loaded from disk",
         "copied_to_clipboard": "SQL copied to clipboard",
         "no_sql_to_copy": "No SQL to copy",
+        "ping_ok": "Database connection OK",
+        "ping_fail": "Database connection failed",
+        "ping_latency": "Latency",
+        "explain_title": "Query Execution Plan",
+        "page_info": "Page {current}/{total} ({count} rows)",
+        "no_pages": "No more pages",
+        "fav_saved": "Favorite saved",
+        "fav_deleted": "Favorite deleted",
+        "fav_not_found": "Favorite not found",
+        "fav_usage": "Usage: /fav [save|list|run|del] [name|index]",
+        "fav_list_title": "Saved Favorites",
+        "fav_empty": "No saved favorites",
+        "autocomplete_hint": "Type to filter, Tab to accept",
         "commands": {
             "/help": "Show help",
             "/clear": "Clear messages",
@@ -48,6 +61,10 @@ TRANSLATIONS = {
             "/write": "Toggle write mode",
             "/db": "Switch database",
             "/copy": "Copy last SQL to clipboard",
+            "/ping": "Check database health",
+            "/explain": "Show query execution plan",
+            "/page": "Show result page (page N)",
+            "/fav": "Manage query favorites",
             "/quit": "Quit application",
         },
         "help_text": (
@@ -62,10 +79,18 @@ TRANSLATIONS = {
             "  /write      - Toggle write mode (INSERT/UPDATE/DELETE)\n"
             "  /db         - Switch database connection\n"
             "  /copy       - Copy last SQL to clipboard\n"
+            "  /ping       - Check database health\n"
+            "  /explain    - Show last query execution plan\n"
+            "  /page N     - Show result page N\n"
+            "  /fav save   - Save last query as favorite\n"
+            "  /fav list   - List saved favorites\n"
+            "  /fav run N  - Execute favorite N\n"
+            "  /fav del N  - Delete favorite N\n"
             "  /quit       - Quit application\n"
             "  /lang       - Switch to Chinese\n\n"
             "[dim]Keyboard shortcuts:[/]\n"
             "  Up/Down     - Browse input history\n"
+            "  Tab         - Accept autocomplete suggestion\n"
             "  Ctrl+L      - Clear messages\n"
             "  Ctrl+H      - Toggle sidebar\n"
             "  Ctrl+C      - Quit"
@@ -109,6 +134,19 @@ TRANSLATIONS = {
         "history_loaded": "历史记录已从磁盘加载",
         "copied_to_clipboard": "SQL 已复制到剪贴板",
         "no_sql_to_copy": "没有可复制的 SQL",
+        "ping_ok": "数据库连接正常",
+        "ping_fail": "数据库连接失败",
+        "ping_latency": "延迟",
+        "explain_title": "查询执行计划",
+        "page_info": "第 {current}/{total} 页（共 {count} 行）",
+        "no_pages": "没有更多页了",
+        "fav_saved": "收藏已保存",
+        "fav_deleted": "收藏已删除",
+        "fav_not_found": "收藏不存在",
+        "fav_usage": "用法: /fav [save|list|run|del] [名称|序号]",
+        "fav_list_title": "收藏列表",
+        "fav_empty": "没有收藏",
+        "autocomplete_hint": "输入过滤，Tab 接受建议",
         "commands": {
             "/help": "显示帮助",
             "/clear": "清空消息",
@@ -120,6 +158,10 @@ TRANSLATIONS = {
             "/write": "切换写入模式",
             "/db": "切换数据库",
             "/copy": "复制上次 SQL 到剪贴板",
+            "/ping": "检测数据库健康",
+            "/explain": "查看查询执行计划",
+            "/page": "查看结果分页 (page N)",
+            "/fav": "管理查询收藏",
             "/quit": "退出应用",
         },
         "help_text": (
@@ -134,10 +176,18 @@ TRANSLATIONS = {
             "  /write      - 切换写入模式 (INSERT/UPDATE/DELETE)\n"
             "  /db         - 切换数据库连接\n"
             "  /copy       - 复制上次 SQL 到剪贴板\n"
+            "  /ping       - 检测数据库健康\n"
+            "  /explain    - 查看上次查询执行计划\n"
+            "  /page N     - 查看第 N 页结果\n"
+            "  /fav save   - 保存上次查询到收藏\n"
+            "  /fav list   - 列出收藏\n"
+            "  /fav run N  - 执行收藏 N\n"
+            "  /fav del N  - 删除收藏 N\n"
             "  /quit       - 退出应用\n"
             "  /lang       - 切换到英文\n\n"
             "[dim]快捷键:[/]\n"
             "  上/下        - 翻看输入历史\n"
+            "  Tab         - 接受自动补全建议\n"
             "  Ctrl+L      - 清空消息\n"
             "  Ctrl+H      - 切换侧栏\n"
             "  Ctrl+C      - 退出"
