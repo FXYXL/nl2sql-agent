@@ -1,6 +1,6 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, Input, RichLog
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.binding import Binding
 from textual import on
 
@@ -30,7 +30,7 @@ class NL2SQLApp(App):
     Screen {
         layout: grid;
         grid-size: 2;
-        grid-columns: 1fr 250px;
+        grid-columns: 1fr 250;
         grid-rows: 1fr auto;
     }
 
@@ -172,7 +172,7 @@ class NL2SQLApp(App):
             log.write("[bold yellow]Chat History:[/]")
             history = self.query_one("#history-log", RichLog)
             for line in history.lines:
-                log.write(f"  {line}")
+                log.write(f"  {line.text}")
         elif cmd == "/export":
             await self.export_history()
         elif cmd == "/config":
@@ -195,7 +195,7 @@ class NL2SQLApp(App):
         try:
             with open("nl2sql_history.txt", "w", encoding="utf-8") as f:
                 for line in history.lines:
-                    f.write(str(line) + "\n")
+                    f.write(line.text + "\n")
             log.write("[green]History exported to nl2sql_history.txt[/]")
         except Exception as e:
             log.write(f"[red]Export failed: {e}[/]")
