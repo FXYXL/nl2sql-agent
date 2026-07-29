@@ -161,7 +161,7 @@ async def test_question_input_mocked():
         "error": None,
     }
     async with app.run_test(size=(120, 40)) as pilot:
-        with patch("app.agents.sql_agent.ask", new_callable=AsyncMock, return_value=mock_result):
+        with patch("app.cli.app.ask", new_callable=AsyncMock, return_value=mock_result):
             await type_and_submit(app, pilot, "show all users")
             await asyncio.sleep(0.5)
 
@@ -184,7 +184,7 @@ async def test_question_error_mocked():
         "error": "Connection refused",
     }
     async with app.run_test(size=(120, 40)) as pilot:
-        with patch("app.agents.sql_agent.ask", new_callable=AsyncMock, return_value=mock_result):
+        with patch("app.cli.app.ask", new_callable=AsyncMock, return_value=mock_result):
             await type_and_submit(app, pilot, "test question")
             await asyncio.sleep(1.0)
 
@@ -249,7 +249,7 @@ async def test_export_includes_history():
         os.remove(export_file)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        with patch("app.agents.sql_agent.ask", new_callable=AsyncMock, return_value=mock_result):
+        with patch("app.cli.app.ask", new_callable=AsyncMock, return_value=mock_result):
             await type_and_submit(app, pilot, "count users")
             await asyncio.sleep(1.0)
 

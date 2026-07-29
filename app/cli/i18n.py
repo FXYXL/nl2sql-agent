@@ -33,7 +33,7 @@ TRANSLATIONS = {
         "write_cancelled": "Write operation cancelled",
         "db_connected": "Database connected",
         "db_connect_error": "Database connection failed",
-        "db_usage": "Usage: /db <mysql+aiomysql://user:pass@host:port/db>",
+        "db_usage": "Usage: /db mysql+aiomysql://user:pass@host:port/db",
         "history_loaded": "History loaded from disk",
         "copied_to_clipboard": "SQL copied to clipboard",
         "no_sql_to_copy": "No SQL to copy",
@@ -50,6 +50,7 @@ TRANSLATIONS = {
         "fav_list_title": "Saved Favorites",
         "fav_empty": "No saved favorites",
         "autocomplete_hint": "Type to filter, Tab to accept",
+        "explain_select_only": "EXPLAIN only supports SELECT queries",
         "commands": {
             "/help": "Show help",
             "/clear": "Clear messages",
@@ -130,7 +131,7 @@ TRANSLATIONS = {
         "write_cancelled": "写入操作已取消",
         "db_connected": "数据库已连接",
         "db_connect_error": "数据库连接失败",
-        "db_usage": "用法: /db <mysql+aiomysql://用户名:密码@主机:端口/数据库>",
+        "db_usage": "用法: /db mysql+aiomysql://用户名:密码@主机:端口/数据库",
         "history_loaded": "历史记录已从磁盘加载",
         "copied_to_clipboard": "SQL 已复制到剪贴板",
         "no_sql_to_copy": "没有可复制的 SQL",
@@ -147,6 +148,7 @@ TRANSLATIONS = {
         "fav_list_title": "收藏列表",
         "fav_empty": "没有收藏",
         "autocomplete_hint": "输入过滤，Tab 接受建议",
+        "explain_select_only": "EXPLAIN 仅支持 SELECT 查询",
         "commands": {
             "/help": "显示帮助",
             "/clear": "清空消息",

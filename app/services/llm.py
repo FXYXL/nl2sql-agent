@@ -6,6 +6,26 @@ from app.core.config import API_KEY, BASE_URL, LLM_MAX_RETRIES, LLM_TIMEOUT, MOD
 
 logger = logging.getLogger(__name__)
 
+# 全局复用 httpx 连接池，避免每次请求新建 client
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(LLM_TIMEOUT, connect=10.0),
+        )
+    return _http_client
+
+
+async def close_client() -> None:
+    """应用关闭时调用，释放连接池"""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
+
 
 async def chat_completion(
     messages: list[dict[str, str]],
@@ -15,30 +35,28 @@ async def chat_completion(
     if max_retries is None:
         max_retries = LLM_MAX_RETRIES
 
+    client = _get_client()
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(LLM_TIMEOUT, connect=10.0),
-            ) as client:
-                resp = await client.post(
-                    f"{BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": MODEL_NAME,
-                        "messages": messages,
-                        "temperature": temperature,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                if not content or not content.strip():
-                    raise ValueError("LLM returned empty response")
-                return content.strip()
+            resp = await client.post(
+                f"{BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": MODEL_NAME,
+                    "messages": messages,
+                    "temperature": temperature,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            if not content or not content.strip():
+                raise ValueError("LLM returned empty response")
+            return content.strip()
         except httpx.TimeoutException:
             last_error = f"LLM request timed out (attempt {attempt}/{max_retries})"
             logger.warning(last_error)

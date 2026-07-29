@@ -28,7 +28,7 @@
 | `/config` | 查看当前配置 |
 | `/schema` | 查看数据库结构 |
 | `/write` | 切换写入模式 |
-| `/db <url>` | 切换数据库连接 |
+| `/db url` | 切换数据库连接 |
 | `/copy` | 复制上次 SQL 到剪贴板 |
 | `/ping` | 检测数据库健康状态 |
 | `/explain` | 查看查询执行计划 |
@@ -59,9 +59,11 @@
 git clone https://github.com/FXYXL/nl2sql-agent.git
 cd nl2sql-agent
 
-# 安装依赖
+# 安装依赖并注册项目（含 nl2sql-cli 命令）
 uv sync
 ```
+
+> 注意：首次运行 `uv sync` 时会根据 `pyproject.toml` 中的 `[build-system]` 构建并安装项目本身，同时注册 `[project.scripts]` 中定义的 `nl2sql-cli` 命令。如果跳过此步骤，`uv run nl2sql-cli` 会报 `program not found`。
 
 ### 配置
 
@@ -75,6 +77,12 @@ DATABASE_URL=mysql+aiomysql://用户名:密码@主机:端口/数据库名
 API_KEY=your_api_key
 BASE_URL=https://api.deepseek.com
 MODEL_NAME=deepseek-v4-flash
+
+# 可选配置
+MAX_SQL_ROWS=1000          # 查询最大返回行数
+LLM_MAX_RETRIES=3          # LLM 调用失败重试次数
+LLM_TIMEOUT=120.0          # LLM 请求超时（秒）
+QUERY_TIMEOUT=30.0         # SQL 执行超时（秒）
 ```
 
 ### 启动
@@ -90,7 +98,7 @@ uv run nl2sql-cli
 
 **API 模式：**
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## API 使用

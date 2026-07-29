@@ -13,6 +13,7 @@ MODEL_NAME = os.getenv("MODEL_NAME", "")
 MAX_SQL_ROWS = int(os.getenv("MAX_SQL_ROWS", "1000"))
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "3"))
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "120.0"))
+QUERY_TIMEOUT = float(os.getenv("QUERY_TIMEOUT", "30.0"))
 
 
 def validate_config():

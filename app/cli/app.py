@@ -1,23 +1,34 @@
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Input, RichLog, OptionList
-from textual.widgets.option_list import Option
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.binding import Binding
-from textual import on
-from rich.table import Table
-from rich.panel import Panel
-import time
+import asyncio
+import os
+import platform
 import re
+import subprocess
+import time
+from urllib.parse import urlparse
 
-from app.cli.i18n import I18n
+from rich.table import Table
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+from textual import on
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.widgets import Footer, Header, Input, OptionList, RichLog, Static
+
+from app.agents.sql_agent import ask
+from app.cli.favorites import load_favorites, get_favorite, remove_favorite, save_favorite
 from app.cli.history import (
-    save_input_history, load_input_history,
-    save_chat_message, load_chat_history, clear_chat_history,
-    save_db_config, load_db_config,
+    load_chat_history,
+    load_db_config,
+    load_input_history,
+    save_chat_message,
+    save_db_config,
+    save_input_history,
 )
-from app.cli.favorites import (
-    load_favorites, save_favorite, remove_favorite, get_favorite,
-)
+from app.cli.i18n import I18n
+from app.core.config import BASE_URL, DATABASE_URL, MODEL_NAME
+from app.core.database import execute_sql, get_database_schema
+from app.core import database as _db
 
 
 class Sidebar(Static):
@@ -175,31 +186,38 @@ class NL2SQLApp(App):
     def _load_persisted_db_config(self) -> None:
         saved_url = load_db_config()
         if saved_url:
-            import os
             current_url = os.environ.get("DATABASE_URL", "")
             if saved_url != current_url:
-                import asyncio
                 asyncio.ensure_future(self._apply_db_config(saved_url))
 
     async def _apply_db_config(self, url: str) -> None:
+        """加载数据库配置时静默切换，失败不提示（启动阶段）"""
         try:
-            from sqlalchemy.ext.asyncio import create_async_engine
-            from app.core import database
-
-            new_engine = create_async_engine(url, echo=False)
-            async with new_engine.begin() as conn:
-                await conn.execute(
-                    __import__("sqlalchemy").text("SELECT 1")
-                )
-
-            database.engine.dispose()
-            database.engine = new_engine
-            database.invalidate_schema_cache()
-
-            import os
-            os.environ["DATABASE_URL"] = url
+            await self._switch_engine(url)
         except Exception:
             pass
+
+    async def switch_database(self, url: str) -> None:
+        """用户主动切换数据库，显示结果"""
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+        try:
+            await self._switch_engine(url)
+            save_db_config(url)
+            log.write(f"[green]{t('db_connected')}[/]")
+        except Exception as e:
+            log.write(f"[bold red]{t('db_connect_error')}:[/] {e}")
+
+    async def _switch_engine(self, url: str) -> None:
+        """统一的数据库引擎切换逻辑"""
+        new_engine = create_async_engine(url, echo=False)
+        async with new_engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+
+        await _db.engine.dispose()
+        _db.engine = new_engine
+        _db.invalidate_schema_cache()
+        os.environ["DATABASE_URL"] = url
 
     def _load_persisted_history(self) -> None:
         t = self._i18n.t
@@ -236,7 +254,6 @@ class NL2SQLApp(App):
 
     def _update_status_bar(self) -> None:
         t = self._i18n.t
-        from app.core.config import MODEL_NAME
         write_status = "[bold green]W[/]" if self._write_mode else "[dim]R[/]"
         status = f" LLM:{MODEL_NAME} | {write_status}"
         self.query_one("#status-bar", Static).update(status)
@@ -244,7 +261,6 @@ class NL2SQLApp(App):
     async def _load_schema_for_autocomplete(self) -> None:
         if not self._schema_cache:
             try:
-                from app.core.database import get_database_schema
                 schema = await get_database_schema()
                 tables = re.findall(r'表名: (\w+)', schema)
                 cols = re.findall(r'- (\w+) \(', schema)
@@ -279,7 +295,6 @@ class NL2SQLApp(App):
             self._command_index = -1
 
             if len(value) >= 2 and not value.startswith("/"):
-                import asyncio
                 asyncio.ensure_future(self._show_autocomplete(value))
             else:
                 popup.remove_class("visible")
@@ -407,15 +422,12 @@ class NL2SQLApp(App):
             self.run_question(value)
 
     def run_command(self, command: str) -> None:
-        import asyncio
         asyncio.ensure_future(self.handle_command(command))
 
     def run_question(self, question: str) -> None:
-        import asyncio
         asyncio.ensure_future(self.handle_question(question))
 
     def run_write(self, sql: str) -> None:
-        import asyncio
         asyncio.ensure_future(self.execute_write(sql))
 
     def _build_result_table(self, columns: list[str], rows: list[list]) -> Table:
@@ -459,7 +471,6 @@ class NL2SQLApp(App):
 
         start_time = time.time()
         try:
-            from app.agents.sql_agent import ask
             result = await ask(question, allow_writes=self._write_mode)
             elapsed = time.time() - start_time
 
@@ -504,7 +515,6 @@ class NL2SQLApp(App):
 
         start_time = time.time()
         try:
-            from app.core.database import execute_sql
             columns, rows = await execute_sql(sql)
             elapsed = time.time() - start_time
 
@@ -520,100 +530,164 @@ class NL2SQLApp(App):
             log.write(f"[bold red]{t('error_label')}:[/] {e}")
             log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
 
+    # ── 命令分发表 ──────────────────────────────────────────────
+
     async def handle_command(self, command: str) -> None:
+        cmd = command.lower().strip()
+        # 带参数的命令
+        if cmd.startswith("/db"):
+            await self._cmd_db(command)
+        elif cmd.startswith("/page"):
+            await self._cmd_page(cmd)
+        elif cmd.startswith("/fav"):
+            await self._cmd_fav(command)
+        elif cmd.startswith("/lang"):
+            await self._cmd_lang(cmd)
+        # 无参数命令
+        else:
+            handler = self._COMMAND_MAP.get(cmd)
+            if handler:
+                await handler(self)
+            else:
+                log = self.query_one("#message-log", RichLog)
+                log.write(f"[red]{self._i18n.t('unknown_command')}: {command}[/]")
+
+    async def _cmd_help(self) -> None:
+        self.query_one("#message-log", RichLog).write(self._i18n.t("help_text"))
+
+    async def _cmd_clear(self) -> None:
+        self._pending_clear = True
+        self.query_one("#message-log", RichLog).write(
+            f"[bold yellow]{self._i18n.t('confirm_clear')}[/]"
+        )
+
+    async def _cmd_history(self) -> None:
         t = self._i18n.t
         log = self.query_one("#message-log", RichLog)
+        history = self.query_one("#history-log", RichLog)
+        log.write(f"[bold yellow]{t('history_title')}:[/]")
+        for line in history.lines:
+            log.write(f"  {line.text}")
 
-        cmd = command.lower().strip()
+    async def _cmd_export(self) -> None:
+        await self.export_history()
 
-        if cmd == "/help":
-            log.write(t("help_text"))
-        elif cmd == "/clear":
-            self._pending_clear = True
-            log.write(f"[bold yellow]{t('confirm_clear')}[/]")
-        elif cmd == "/history":
-            log.write(f"[bold yellow]{t('history_title')}:[/]")
-            history = self.query_one("#history-log", RichLog)
-            for line in history.lines:
-                log.write(f"  {line.text}")
-        elif cmd == "/export":
-            await self.export_history()
-        elif cmd == "/export csv":
-            await self.export_csv()
-        elif cmd == "/config":
-            from app.core.config import DATABASE_URL, BASE_URL, MODEL_NAME
-            from urllib.parse import urlparse
-            parsed = urlparse(DATABASE_URL)
-            masked_db = f"{parsed.scheme}://{parsed.hostname}" + (":{}".format(parsed.port) if parsed.port else "") if parsed.hostname else "(not set)"
-            write_status = "ON" if self._write_mode else "OFF"
-            log.write(f"[bold yellow]{t('config_title')}:[/]\n"
-                      f"  Database: {masked_db}\n"
-                      f"  LLM: {MODEL_NAME}\n"
-                      f"  API: {BASE_URL}\n"
-                      f"  Write mode: {write_status}")
-        elif cmd == "/schema":
-            from app.core.database import get_database_schema
-            try:
-                schema = await get_database_schema()
-                log.write(f"[bold yellow]{t('schema_title')}:[/]\n{schema}")
-            except Exception as e:
-                log.write(f"[bold red]{t('schema_error')}:[/] {e}")
-        elif cmd == "/write":
-            self._write_mode = not self._write_mode
-            self._update_status_bar()
-            if self._write_mode:
-                log.write(f"[bold yellow]{t('write_mode_on')}[/]")
-            else:
-                log.write(f"[dim]{t('write_mode_off')}[/]")
-        elif cmd.startswith("/db"):
-            parts = command.split(maxsplit=1)
-            if len(parts) >= 2:
-                await self.switch_database(parts[1])
-            else:
-                log.write(f"[dim]{t('db_usage')}[/]")
-        elif cmd == "/copy":
-            if self._last_sql:
-                import subprocess
-                import platform
-                try:
-                    if platform.system() == "Windows":
-                        process = subprocess.Popen(["clip"], stdin=subprocess.PIPE)
-                        process.communicate(self._last_sql.encode("utf-16le"))
-                    else:
-                        process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-                        process.communicate(self._last_sql.encode("utf-8"))
-                    log.write(f"[green]{t('copied_to_clipboard')}[/]")
-                except Exception:
-                    log.write(f"[yellow]{self._last_sql}[/]")
-            else:
-                log.write(f"[yellow]{t('no_sql_to_copy')}[/]")
-        elif cmd == "/ping":
-            await self.ping_database()
-        elif cmd == "/explain":
-            await self.explain_query()
-        elif cmd.startswith("/page"):
-            parts = cmd.split()
-            if len(parts) >= 2:
-                self.show_page(int(parts[1]))
-            else:
-                self.show_page(1)
-        elif cmd.startswith("/fav"):
-            await self.handle_fav_command(command)
-        elif cmd == "/quit":
-            self.exit()
-        elif cmd.startswith("/lang"):
-            parts = cmd.split()
-            if len(parts) >= 2 and parts[1] in ("en", "zh"):
-                self._i18n.switch_lang(parts[1])
-                self._update_ui_texts()
-                log.write(f"[green]{t('lang_changed')}[/]")
-            else:
-                target = "en" if self._i18n.lang == "zh" else "zh"
-                self._i18n.switch_lang(target)
-                self._update_ui_texts()
-                log.write(f"[green]{t('lang_changed')}[/]")
+    async def _cmd_export_csv(self) -> None:
+        await self.export_csv()
+
+    async def _cmd_config(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+        parsed = urlparse(DATABASE_URL)
+        masked_db = (
+            f"{parsed.scheme}://{parsed.hostname}"
+            + (f":{parsed.port}" if parsed.port else "")
+            if parsed.hostname
+            else "(not set)"
+        )
+        write_status = "ON" if self._write_mode else "OFF"
+        log.write(
+            f"[bold yellow]{t('config_title')}:[/]\n"
+            f"  Database: {masked_db}\n"
+            f"  LLM: {MODEL_NAME}\n"
+            f"  API: {BASE_URL}\n"
+            f"  Write mode: {write_status}"
+        )
+
+    async def _cmd_schema(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+        try:
+            schema = await get_database_schema()
+            log.write(f"[bold yellow]{t('schema_title')}:[/]\n{schema}")
+        except Exception as e:
+            log.write(f"[bold red]{t('schema_error')}:[/] {e}")
+
+    async def _cmd_write(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+        self._write_mode = not self._write_mode
+        self._update_status_bar()
+        if self._write_mode:
+            log.write(f"[bold yellow]{t('write_mode_on')}[/]")
         else:
-            log.write(f"[red]{t('unknown_command')}: {command}[/]")
+            log.write(f"[dim]{t('write_mode_off')}[/]")
+
+    async def _cmd_copy(self) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+        if self._last_sql:
+            try:
+                if platform.system() == "Windows":
+                    process = subprocess.Popen(["clip"], stdin=subprocess.PIPE)
+                    process.communicate(self._last_sql.encode("utf-16le"))
+                else:
+                    process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+                    process.communicate(self._last_sql.encode("utf-8"))
+                log.write(f"[green]{t('copied_to_clipboard')}[/]")
+            except Exception:
+                log.write(f"[yellow]{self._last_sql}[/]")
+        else:
+            log.write(f"[yellow]{t('no_sql_to_copy')}[/]")
+
+    async def _cmd_ping(self) -> None:
+        await self.ping_database()
+
+    async def _cmd_explain(self) -> None:
+        await self.explain_query()
+
+    async def _cmd_quit(self) -> None:
+        self.exit()
+
+    async def _cmd_db(self, command: str) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+        parts = command.split(maxsplit=1)
+        if len(parts) >= 2:
+            url = parts[1].strip()
+            # 兼容用户误输入尖括号 <url> 的情况
+            if url.startswith("<") and url.endswith(">"):
+                url = url[1:-1].strip()
+            await self.switch_database(url)
+        else:
+            log.write(f"[dim]{t('db_usage')}[/]")
+
+    async def _cmd_page(self, cmd: str) -> None:
+        parts = cmd.split()
+        self.show_page(int(parts[1]) if len(parts) >= 2 else 1)
+
+    async def _cmd_fav(self, command: str) -> None:
+        await self.handle_fav_command(command)
+
+    async def _cmd_lang(self, cmd: str) -> None:
+        t = self._i18n.t
+        log = self.query_one("#message-log", RichLog)
+        parts = cmd.split()
+        if len(parts) >= 2 and parts[1] in ("en", "zh"):
+            self._i18n.switch_lang(parts[1])
+        else:
+            target = "en" if self._i18n.lang == "zh" else "zh"
+            self._i18n.switch_lang(target)
+        self._update_ui_texts()
+        log.write(f"[green]{t('lang_changed')}[/]")
+
+    # 命令分发表（无参数命令）
+    _COMMAND_MAP = {
+        "/help": _cmd_help,
+        "/clear": _cmd_clear,
+        "/history": _cmd_history,
+        "/export": _cmd_export,
+        "/export csv": _cmd_export_csv,
+        "/config": _cmd_config,
+        "/schema": _cmd_schema,
+        "/write": _cmd_write,
+        "/copy": _cmd_copy,
+        "/ping": _cmd_ping,
+        "/explain": _cmd_explain,
+        "/quit": _cmd_quit,
+    }
+
+    # ── 其余方法 ──────────────────────────────────────────────
 
     async def ping_database(self) -> None:
         t = self._i18n.t
@@ -621,9 +695,7 @@ class NL2SQLApp(App):
 
         start_time = time.time()
         try:
-            from app.core.database import engine
-            from sqlalchemy import text
-            async with engine.connect() as conn:
+            async with _db.engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             elapsed = time.time() - start_time
             log.write(f"[green]{t('ping_ok')}[/] ({t('ping_latency')}: {elapsed:.3f}s)")
@@ -640,17 +712,13 @@ class NL2SQLApp(App):
             return
 
         sql = self._last_sql.strip()
-        if sql.upper().startswith("SELECT"):
-            explain_sql = f"EXPLAIN {sql}"
-        else:
-            log.write(f"[yellow]EXPLAIN only supports SELECT queries[/]")
+        if not sql.upper().startswith("SELECT"):
+            log.write(f"[yellow]{t('explain_select_only')}[/]")
             return
 
         try:
-            from app.core.database import engine
-            from sqlalchemy import text
-            async with engine.connect() as conn:
-                result = await conn.execute(text(explain_sql))
+            async with _db.engine.connect() as conn:
+                result = await conn.execute(text(f"EXPLAIN {sql}"))
                 columns = list(result.keys())
                 rows = [list(row) for row in result.fetchall()]
 
@@ -694,11 +762,13 @@ class NL2SQLApp(App):
 
         parts = command.split(maxsplit=2)
         if len(parts) < 2:
-            log.write(f"[bold yellow]{t('fav_list_title')}:[/]\n"
-                      "  /fav save [name] - Save last SQL\n"
-                      "  /fav list        - List all favorites\n"
-                      "  /fav run N       - Execute favorite N\n"
-                      "  /fav del N       - Delete favorite N")
+            log.write(
+                f"[bold yellow]{t('fav_list_title')}:[/]\n"
+                "  /fav save [name] - Save last SQL\n"
+                "  /fav list        - List all favorites\n"
+                "  /fav run N       - Execute favorite N\n"
+                "  /fav del N       - Delete favorite N"
+            )
             return
 
         action = parts[1].lower()
@@ -734,7 +804,6 @@ class NL2SQLApp(App):
                     if fav:
                         sql = fav["sql"]
                         log.write(f"[bold blue]SQL:[/] {sql}")
-                        import asyncio
                         asyncio.ensure_future(self._execute_direct_sql(sql))
                     else:
                         log.write(f"[yellow]{t('fav_not_found')}[/]")
@@ -764,7 +833,6 @@ class NL2SQLApp(App):
 
         start_time = time.time()
         try:
-            from app.core.database import execute_sql
             columns, rows = await execute_sql(sql)
             elapsed = time.time() - start_time
 
@@ -780,34 +848,6 @@ class NL2SQLApp(App):
             elapsed = time.time() - start_time
             log.write(f"[bold red]{t('error_label')}:[/] {e}")
             log.write(f"[dim]{t('elapsed')}: {elapsed:.2f}s[/]")
-
-    async def switch_database(self, url: str) -> None:
-        t = self._i18n.t
-        log = self.query_one("#message-log", RichLog)
-
-        try:
-            from app.core.database import engine
-            from sqlalchemy.ext.asyncio import create_async_engine
-            from app.core import database
-
-            new_engine = create_async_engine(url, echo=False)
-
-            async with new_engine.begin() as conn:
-                await conn.execute(
-                    __import__("sqlalchemy").text("SELECT 1")
-                )
-
-            database.engine.dispose()
-            database.engine = new_engine
-            database.invalidate_schema_cache()
-
-            import os
-            os.environ["DATABASE_URL"] = url
-            save_db_config(url)
-
-            log.write(f"[green]{t('db_connected')}[/]")
-        except Exception as e:
-            log.write(f"[bold red]{t('db_connect_error')}:[/] {e}")
 
     async def export_history(self) -> None:
         t = self._i18n.t

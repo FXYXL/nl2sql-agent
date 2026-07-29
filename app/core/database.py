@@ -6,7 +6,7 @@ from time import time
 from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.core.config import DATABASE_URL, MAX_SQL_ROWS
+from app.core.config import DATABASE_URL, MAX_SQL_ROWS, QUERY_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +18,16 @@ _cache_timestamp: float = 0.0
 _cache_ttl_seconds = 300
 _cache_lock = asyncio.Lock()
 
-_WRITE_PATTERN = re.compile(
+# 统一的写操作检测正则，sql_agent.py 也复用此定义
+WRITE_PATTERN = re.compile(
     r'^\s*(INSERT|UPDATE|DELETE|REPLACE|CALL)\b',
     re.IGNORECASE,
 )
+
+
+def is_write_sql(sql: str) -> bool:
+    """判断 SQL 是否为写操作（INSERT/UPDATE/DELETE/REPLACE/CALL）"""
+    return bool(WRITE_PATTERN.match(sql.strip()))
 
 
 def _is_cache_valid() -> bool:
@@ -29,9 +35,11 @@ def _is_cache_valid() -> bool:
 
 
 def invalidate_schema_cache():
+    """清除 schema 缓存和 metadata，切换数据库时必须调用"""
     global _cached_schema, _cache_timestamp
     _cached_schema = None
     _cache_timestamp = 0.0
+    metadata.clear()  # 清理旧库的表结构，避免新旧库表混在一起
 
 
 async def get_database_schema() -> str:
@@ -60,23 +68,36 @@ async def get_database_schema() -> str:
 
 async def execute_sql(sql: str) -> tuple[list[str], list[list]]:
     clean_sql = sql.strip().rstrip(";")
-    is_write = bool(_WRITE_PATTERN.match(clean_sql))
+    is_write = is_write_sql(clean_sql)
 
-    if is_write:
-        exec_sql = clean_sql
-    else:
-        exec_sql = f"SELECT * FROM ({clean_sql}) AS _sub LIMIT {MAX_SQL_ROWS}"
+    logger.info("Executing SQL: %s", clean_sql[:500])
 
-    logger.info("Executing SQL: %s", exec_sql[:500])
-    async with engine.connect() as conn:
-        if is_write:
-            result = await conn.execute(text(exec_sql))
-            await conn.commit()
-            affected = result.rowcount
-            return ["affected_rows"], [[affected]]
-        else:
-            result = await conn.execute(text(exec_sql))
-            columns = list(result.keys())
-            rows = [list(row) for row in result.fetchall()]
-            logger.info("Query returned %d rows", len(rows))
-            return columns, rows
+    async def _execute() -> tuple[list[str], list[list]]:
+        async with engine.connect() as conn:
+            if is_write:
+                result = await conn.execute(text(clean_sql))
+                await conn.commit()
+                affected = result.rowcount
+                return ["affected_rows"], [[affected]]
+            else:
+                exec_sql = _inject_limit(clean_sql, MAX_SQL_ROWS)
+                result = await conn.execute(text(exec_sql))
+                columns = list(result.keys())
+                rows = [list(row) for row in result.fetchall()]
+                logger.info("Query returned %d rows", len(rows))
+                return columns, rows
+
+    try:
+        return await asyncio.wait_for(_execute(), timeout=QUERY_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"Query timed out after {QUERY_TIMEOUT}s")
+
+
+_LIMIT_TAIL_PATTERN = re.compile(r'\blimit\s+\d+\s*$', re.IGNORECASE)
+
+
+def _inject_limit(sql: str, max_rows: int) -> str:
+    """对 SELECT 语句注入 LIMIT，已有 LIMIT 则不重复添加"""
+    if _LIMIT_TAIL_PATTERN.search(sql):
+        return sql
+    return f"{sql} LIMIT {max_rows}"

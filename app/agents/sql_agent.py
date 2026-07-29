@@ -1,7 +1,7 @@
 import logging
 import re
 
-from app.core.database import execute_sql, get_database_schema
+from app.core.database import execute_sql, get_database_schema, is_write_sql
 from app.services.llm import chat_completion
 
 logger = logging.getLogger(__name__)
@@ -37,12 +37,10 @@ _DANGEROUS_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-_WRITE_KEYWORDS = re.compile(
-    r'\b(INSERT|UPDATE|DELETE)\b',
-    re.IGNORECASE,
-)
-
 _DANGEROUS_COMMENTS = re.compile(r'/\*.*?\*/|;--|--')
+
+# 检测非末尾的分号（多语句注入）
+_MULTI_STATEMENT = re.compile(r';\s*\S')
 
 
 def _is_safe_sql(sql: str, allow_writes: bool = False) -> str | None:
@@ -50,13 +48,13 @@ def _is_safe_sql(sql: str, allow_writes: bool = False) -> str | None:
         return "生成的 SQL 为空"
     if _DANGEROUS_COMMENTS.search(sql):
         return "拒绝执行: SQL 包含可疑注释"
+    if _MULTI_STATEMENT.search(sql):
+        return "拒绝执行: SQL 包含多语句（分号分隔），存在注入风险"
     match = _DANGEROUS_KEYWORDS.search(sql)
     if match:
         return f"拒绝执行: SQL 包含危险操作 '{match.group(1)}'"
-    if not allow_writes:
-        match = _WRITE_KEYWORDS.search(sql)
-        if match:
-            return f"拒绝执行: SQL 包含写入操作 '{match.group(1)}'，当前为只读模式"
+    if not allow_writes and is_write_sql(sql):
+        return "拒绝执行: SQL 包含写入操作，当前为只读模式"
     return None
 
 
@@ -95,10 +93,10 @@ async def ask(question: str, allow_writes: bool = False) -> dict:
             "columns": [],
             "rows": [],
             "error": safety_error,
-            "is_write": bool(_WRITE_KEYWORDS.search(sql)),
+            "is_write": is_write_sql(sql),
         }
 
-    is_write = bool(_WRITE_KEYWORDS.search(sql))
+    is_write = is_write_sql(sql)
 
     columns, rows = [], []
     error = None
